@@ -34,6 +34,8 @@ erDiagram
 ```
 
 **Связи:**
-- `exchangeRates.currencyFromId` → `currencies.currencyId` — из какой валюты
-- `exchangeRates.currencyToId` → `currencies.currencyId` — в какую валюту
-- `countries`, `regions` — самостоятельные справочники, связей между собой нет
+- `exchangeRates.currencyFromId` → `currencies` — из какой валюты
+- `exchangeRates.currencyToId` → `currencies` — в какую валюту
+- `countries`, `regions` — самостоятельные, связей между собой нет
+
+**Используется в:** `goods.regionId`, `publishers.countryId`, `purchasePlatforms.countryId`, `sellers.countryId`, `shipments.originCountryId`, `purchaseOrders.currencyId`, `shipments.currencyId`, `salesOrders.currencyId`
