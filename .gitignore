@@ -6,8 +6,16 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Скрипты и ключи
+scratch/
+*.json
+.env
+
 # Секреты и пароли (никогда не выкладывать!)
 .env
+.env.
+!.env.example
+
 *.env
 config.local.json
 
@@ -15,3 +23,11 @@ config.local.json
 *.dump
 *.sql.gz
 backup/
+
+db/*.sqlite3
+logs/*
+data/api_raw/*
+data/exports/*
+__pycache__/
+*.pyc
+.venv/
