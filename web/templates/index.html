@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Главная — Only_limited_magazin{% endblock %}
+{% block content %}
+<h2>Выберите роль</h2>
+<div class="roles">
+    <a href="/keeper" class="role-card">
+        <h3>Кладовщик</h3>
+        <p>Остатки, приёмка, списания</p>
+    </a>
+    <a href="/seller" class="role-card">
+        <h3>Продавец</h3>
+        <p>Цены, маржа, заказы</p>
+    </a>
+</div>
+{% endblock %}

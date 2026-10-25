@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Продавец — Only_limited_magazin{% endblock %}
+{% block content %}
+<h2>Экран продавца</h2>
+<p>Товары с ценой. Сортировка по чистой марже (по возрастанию).</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Артикул</th>
+            <th>Название</th>
+            <th>Цена</th>
+            <th>Комис.</th>
+            <th>На руки</th>
+            <th>Себест.</th>
+            <th>Чистая маржа %</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in rows %}
+        <tr>
+            <td>{{ r["offer_id"] }}</td>
+            <td>{{ r["name"][:50] }}{% if r["name"]|length > 50 %}…{% endif %}</td>
+            <td class="num">{{ "%.2f"|format(r["price"]) }}</td>
+            <td class="num">{{ "%.0f"|format((r["commission_rate"] or 0.45) * 100) }}%</td>
+            <td class="num">{{ "%.2f"|format(r["payout_amount"] or 0) }}</td>
+            <td class="num">{{ "%.2f"|format(r["cost_price_synthetic"] or 0) }}</td>
+            <td class="num {% if r['margin_net_pct'] is not none and r['margin_net_pct'] < 20 %}neg{% endif %}">
+                {{ "%.1f"|format(r["margin_net_pct"]) if r["margin_net_pct"] is not none else "—" }}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<p class="hint">Показано {{ rows|length }} товаров (лимит 100).</p>
+{% endblock %}

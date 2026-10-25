@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block title %}Инвентаризация{% endblock %}
+{% block content %}
+<h2>Инвентаризация склада</h2>
+<p><a href="/keeper">← Назад в меню</a></p>
+
+<!-- Место для отчёта (появляется после сохранения) -->
+<div id="report-box" style="display:none;" class="flash ok" style="position: relative;">
+    <div id="report-content"></div>
+    <button onclick="document.getElementById('report-box').style.display='none'" style="position: absolute; top: 10px; right: 10px; background: none; border: none; color: #155724; font-size: 20px; cursor: pointer;">&times;</button>
+</div>
+
+<table id="stock-table">
+    <thead>
+        <tr>
+            <th>Артикул</th>
+            <th>Название</th>
+            <th>Факт. остаток</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in rows %}
+        <tr data-offer-id="{{ r['offer_id'] }}" data-original="{{ r['physical_qty'] }}">
+            <td>{{ r["offer_id"] }}</td>
+            <td>{{ r["name"] }}</td>
+            <td>
+                <input type="number" class="qty-input" value="{{ r['physical_qty'] }}" min="0" style="width:90px;">
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Плавающая панель сохранения -->
+<div id="floating-panel">
+    <span id="change-count">0 изменений</span>
+    <button id="save-all-btn" disabled>💾 Сохранить все</button>
+</div>
+
+<style>
+    /* Стили для плавающей панели */
+    #floating-panel {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #2c3e50;
+        color: white;
+        padding: 12px 24px;
+        border-radius: 30px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        opacity: 0;
+        transition: opacity 0.3s, transform 0.3s;
+        pointer-events: none;
+        z-index: 1000;
+    }
+    #floating-panel.active {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateX(-50%) translateY(-10px);
+    }
+    #floating-panel button {
+        background: #27ae60;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-weight: bold;
+        cursor: pointer;
+    }
+    #floating-panel button:disabled {
+        background: #7f8c8d;
+        cursor: not-allowed;
+    }
+    .undo-btn {
+        margin-left: 10px;
+        background: #e74c3c;
+        color: white;
+        border: none;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+    }
+</style>
+
+<script>
+    const panel = document.getElementById('floating-panel');
+    const countEl = document.getElementById('change-count');
+    const saveBtn = document.getElementById('save-all-btn');
+    let changedItems = []; // Здесь храним изменения для отмены
+
+    // Функция обновления плавающей панели
+    function updatePanel() {
+        const rows = document.querySelectorAll('#stock-table tbody tr');
+        let count = 0;
+        rows.forEach(row => {
+            const original = parseInt(row.dataset.original);
+            const current = parseInt(row.querySelector('.qty-input').value) || 0;
+            if (current !== original) {
+                row.style.backgroundColor = '#fff3cd'; // подсветка
+                count++;
+            } else {
+                row.style.backgroundColor = '';
+            }
+        });
+
+        countEl.textContent = count + ' изменений';
+        if (count > 0) {
+            panel.classList.add('active');
+            saveBtn.disabled = false;
+        } else {
+            panel.classList.remove('active');
+            saveBtn.disabled = true;
+        }
+    }
+
+    // Слушаем изменения во всех полях
+    document.querySelectorAll('.qty-input').forEach(input => {
+        input.addEventListener('input', updatePanel);
+    });
+
+    // Кнопка сохранения
+    saveBtn.addEventListener('click', async function() {
+        const btn = this;
+        const rows = document.querySelectorAll('#stock-table tbody tr');
+        const items = [];
+        
+        rows.forEach(row => {
+            const offerId = row.dataset.offerId;
+            const original = parseInt(row.dataset.original);
+            const input = row.querySelector('.qty-input');
+            const current = parseInt(input.value) || 0;
+            if (current !== original) {
+                items.push({ offer_id: offerId, quantity: current });
+            }
+        });
+
+        if (items.length === 0) return;
+
+        btn.disabled = true;
+        btn.textContent = 'Сохранение...';
+
+        try {
+            const response = await fetch('/keeper/inventory/bulk_save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(items)
+            });
+            const data = await response.json();
+
+            if (data.ok) {
+                // Обновляем data-original (теперь это новое «истинное» значение)
+                items.forEach(item => {
+                    const row = document.querySelector(`tr[data-offer-id="${item.offer_id}"]`);
+                    if (row) {
+                        row.dataset.original = item.quantity;
+                        row.style.backgroundColor = '';
+                    }
+                });
+
+                // Генерируем красивый отчёт
+                const reportBox = document.getElementById('report-box');
+                const reportContent = document.getElementById('report-content');
+                
+                if (data.changes.length > 0) {
+                    let html = `<strong>✅ Сохранено ${data.changes.length} изменений:</strong><ul style="margin-top: 8px; padding-left: 20px;">`;
+                    data.changes.forEach(c => {
+                   	 html += `<li style="margin-bottom: 4px;">
+			    <b>${c.offer_id}</b> (${c.name}): 
+			    <span style="color: #e74c3c; font-weight: bold;">${c.old}</span> → 
+			    <span style="color: #2ecc71; font-weight: bold;">${c.new}</span>
+		 	 </li>`;
+                    });
+                    html += '</ul>';
+                    reportContent.innerHTML = html;
+                    reportBox.style.display = 'block';
+                    window.scrollTo({ top: 0, behavior: 'smooth' }); // Прокрутка к отчёту
+                }
+            }
+        } catch (err) {
+            alert('Ошибка сети: ' + err.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '💾 Сохранить все';
+            updatePanel();
+        }
+    });
+</script>
+{% endblock %}

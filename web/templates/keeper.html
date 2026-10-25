@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Кладовщик — Only_limited_magazin{% endblock %}
+{% block content %}
+<h2>Экран кладовщика</h2>
+<p>Товары с остатками. Сортировка по «Доступно» (по возрастанию).</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Артикул</th>
+            <th>Название</th>
+            <th>Физ. остаток</th>
+            <th>В пути</th>
+            <th>Доступно</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in rows %}
+        <tr>
+            <td>{{ r["offer_id"] }}</td>
+            <td>{{ r["name"][:60] }}{% if r["name"]|length > 60 %}…{% endif %}</td>
+            <td class="num">{{ r["physical_qty"] }}</td>
+            <td class="num">{{ r["in_transit_qty"] }}</td>
+            <td class="num {% if r['available_qty'] < 0 %}neg{% elif r['available_qty'] == 0 %}zero{% endif %}">{{ r["available_qty"] }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<p class="hint">Показано {{ rows|length }} товаров (лимит 100).</p>
+{% endblock %}

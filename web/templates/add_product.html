@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+{% block title %}Добавить товар{% endblock %}
+{% block content %}
+<h2>Добавление нового товара</h2>
+<p><a href="/keeper">← Назад в меню</a></p>
+
+<form id="add-product-form" method="post" action="/keeper/add_product" autocomplete="off">
+    <div class="form-group">
+        <label>Тип товара:</label>
+        <div style="display:flex; gap:6px;">
+            <select name="typeGoodId" id="typeGoodId" required>
+                {% for t in typeGoods %}
+                <option value="{{ t['typeGoodId'] }}">{{ t['typeGoodName'] }}</option>
+                {% endfor %}
+            </select>
+            <button type="button" class="btn-small" onclick="openModal('modal-type')">+</button>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Платформа:</label>
+        <select name="platformId" id="platformId" required>
+            {% for p in platforms %}
+            <option value="{{ p['platformId'] }}">{{ p['platformName'] }} {{ p['platformVersion'] }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Название игры (начните вводить для поиска):</label>
+        <input type="text" name="gameName" id="gameName" list="game-names" placeholder="Например: Doom Eternal" required autocomplete="new-password">
+        <datalist id="game-names">
+            {% for g in games %}
+            <option value="{{ g['baseGameName'] }}">
+            {% endfor %}
+        </datalist>
+    </div>
+
+    <div class="form-group">
+        <label>Издание:</label>
+        <div style="display:flex; gap:6px;">
+            <select name="editionId" id="editionId" required>
+                {% for e in editions %}
+                <option value="{{ e['editionId'] }}">{{ e['editionName'] }}</option>
+                {% endfor %}
+            </select>
+            <button type="button" class="btn-small" onclick="openModal('modal-edition')">+</button>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Регион:</label>
+        <select name="regionId" id="regionId" required>
+            {% for r in regions %}
+            <option value="{{ r['regionId'] }}">{{ r['regionCode'] }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Издатель:</label>
+        <div style="display:flex; gap:6px;">
+            <select name="publisherId" id="publisherId" required>
+                {% for p in publishers %}
+                <option value="{{ p['publisherId'] }}">{{ p['publisherName'] }}</option>
+                {% endfor %}
+            </select>
+            <button type="button" class="btn-small" onclick="openModal('modal-publisher')">+</button>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Год первого релиза (необязательно):</label>
+        <input type="number" name="firstReleaseYear" min="1950" max="2100">
+    </div>
+
+    <div class="form-group">
+        <label>Год выпуска этой версии (необязательно):</label>
+        <input type="number" name="firstYearEdition" min="1950" max="2100">
+    </div>
+
+    <div class="form-group">
+        <label>Возрастной рейтинг:</label>
+        <select name="audience">
+            <option value="">Не указан</option>
+            <option value="0">0+</option>
+            <option value="6">6+</option>
+            <option value="12">12+</option>
+            <option value="16">16+</option>
+            <option value="18">18+</option>
+        </select>
+    </div>
+
+    <h3>Цена (введите в одной валюте, остальные пересчитаются)</h3>
+    <div class="price-grid">
+        <div class="form-group">
+	    <label>Цена в RUB:</label>
+	    <input type="text" inputmode="decimal" id="priceRub" name="priceRub" class="price-input">
+	</div>
+	<div class="form-group">
+	    <label>Цена в USD:</label>
+	    <input type="text" inputmode="decimal" id="priceUsd" name="priceUsd" class="price-input">
+	</div>
+	<div class="form-group">
+	    <label>Цена в EUR:</label>
+	    <input type="text" inputmode="decimal" id="priceEur" name="priceEur" class="price-input">
+	</div>
+	<div class="form-group">
+	    <label>Цена в GBP:</label>
+	    <input type="text" inputmode="decimal" id="priceGbp" name="priceGbp" class="price-input">
+	</div>
+    </div>
+
+    <div class="form-group">
+	    <label>Количество на складе (макс. 100):</label>
+	    <input type="text" inputmode="numeric" id="quantity" name="quantity" value="0" maxlength="3" autocomplete="off">
+    </div>
+
+    <button type="submit" class="btn-primary">💾 Сохранить товар</button>
+</form>
+
+<style>
+    .form-group { margin-bottom: 16px; max-width: 500px; }
+    .form-group label { display: block; font-weight: bold; margin-bottom: 4px; }
+    .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+    .price-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 500px; }
+    .btn-primary { background: #2c3e50; color: white; padding: 12px 24px; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; margin-top: 20px; }
+    .btn-primary:hover { background: #34495e; }
+    .btn-small { background: #3498db; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    .btn-small:hover { background: #2980b9; }
+</style>
+
+<script>
+    // 1. Загрузка курсов валют
+    let rates = { RUB: 1.0, USD: 92.5, EUR: 100.2, GBP: 117.4 };
+    fetch('/api/rates')
+        .then(res => res.json())
+        .then(data => { rates = data; })
+        .catch(err => console.error('Ошибка загрузки курсов:', err));
+
+    // 2. Функция форматирования (округление до 2 знаков)
+    function round2(num) {
+        return Math.round(num * 100) / 100;
+    }
+
+    // 3. Функция пересчета всех валют от текущего поля
+    function recalc(sourceId) {
+        const sourceInput = document.getElementById(sourceId);
+        // Заменяем запятую на точку и убираем лишние символы
+        let valStr = sourceInput.value.replace(',', '.').replace(/[^0-9.]/g, '');
+        
+        // Отсекаем лишние точки (оставляем только первую)
+        const parts = valStr.split('.');
+        if (parts.length > 2) valStr = parts[0] + '.' + parts.slice(1).join('');
+        
+        sourceInput.value = valStr; // Обновляем поле (чтобы убрать мусор)
+        const val = parseFloat(valStr);
+
+        if (isNaN(val) || val <= 0) {
+            ['priceRub', 'priceUsd', 'priceEur', 'priceGbp'].forEach(id => {
+                if (id !== sourceId) document.getElementById(id).value = '';
+            });
+            return;
+        }
+
+        // Переводим всё в рубли
+        let priceRub;
+        if (sourceId === 'priceRub') {
+            priceRub = val;
+        } else {
+            const currency = sourceId.replace('price', '').toUpperCase();
+            priceRub = val * (rates[currency] || 1);
+        }
+
+        // Пересчитываем и записываем обратно во все поля
+        const setVal = (id, value) => {
+            if (document.activeElement.id !== id) { // Не трогаем поле, где сейчас курсор
+                document.getElementById(id).value = round2(value);
+            }
+        };
+
+        setVal('priceRub', priceRub);
+        setVal('priceUsd', priceRub / rates.USD);
+        setVal('priceEur', priceRub / rates.EUR);
+        setVal('priceGbp', priceRub / rates.GBP);
+    }
+
+    // 4. Жесткая фильтрация ввода (не даем ввести буквы и больше одной точки)
+    document.querySelectorAll('.price-input').forEach(input => {
+        // При вводе разрешаем только цифры и точку
+        input.addEventListener('beforeinput', (e) => {
+            // Разрешаем только цифры и точку
+            if (e.data && !/[0-9.]/.test(e.data)) {
+                e.preventDefault();
+            }
+            // Если вводится точка, проверяем, есть ли уже точка в поле
+            if (e.data === '.' && input.value.includes('.')) {
+                e.preventDefault();
+            }
+        });
+
+        // При потере фокуса (Tab, клик мышкой) — пересчитываем
+        input.addEventListener('blur', () => recalc(input.id));
+        
+        // При нажатии Enter — пересчитываем
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                recalc(input.id);
+            }
+        });
+    });
+
+    // 5. Фильтрация для количества (только цифры, максимум 100)
+    const qtyInput = document.getElementById('quantity');
+    
+    // Разрешаем только цифры при вводе
+    qtyInput.addEventListener('beforeinput', (e) => {
+        if (e.data && !/[0-9]/.test(e.data)) {
+            e.preventDefault();
+        }
+    });
+
+    // При уходе с поля (blur) — принудительно ставим лимит
+    qtyInput.addEventListener('blur', () => {
+        let val = parseInt(qtyInput.value) || 0;
+        if (val > 100) val = 100;
+        if (val < 0) val = 0;
+        qtyInput.value = val;
+    });
+</script>
+
+<!-- Модальное окно для типа товара -->
+<div id="modal-type" class="modal" style="display:none;">
+    <div class="modal-content">
+        <h3>Новый тип товара</h3>
+        <form method="post" action="/api/add_type" autocomplete="off">
+            <input type="text" name="new_type_name" placeholder="Например: steelbook" required autocomplete="new-password">
+            <div class="modal-actions">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="document.getElementById('modal-type').style.display='none'">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Модальное окно для издания -->
+<div id="modal-edition" class="modal" style="display:none;">
+    <div class="modal-content">
+        <h3>Новое издание</h3>
+        <form method="post" action="/api/add_edition" autocomplete="off">
+            <input type="text" name="new_type_name" placeholder="Например: Anniversary Edition" required autocomplete="new-password">
+            <div class="modal-actions">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="document.getElementById('modal-edition').style.display='none'">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Модальное окно для издателя -->
+<div id="modal-publisher" class="modal" style="display:none;">
+    <div class="modal-content">
+        <h3>Новый издатель</h3>
+        <form method="post" action="/api/add_publisher" autocomplete="off">
+            <input type="text" name="new_type_name" placeholder="Например: Limited Run Games" required autocomplete="new-password">
+            <div class="modal-actions">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="document.getElementById('modal-publisher').style.display='none'">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+    .modal {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
+    }
+    .modal-content {
+        background: white; padding: 24px; border-radius: 8px; min-width: 300px;
+    }
+    .modal-content h3 { margin-top: 0; }
+    .modal-content input { width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #ccc; border-radius: 4px; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .btn-secondary { background: #95a5a6; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+</style>
+
+<script>
+    // Функции для открытия модальных окон
+    function openModal(id) {
+        document.getElementById(id).style.display = 'flex';
+    }
+</script>
+
+{% endblock %}
