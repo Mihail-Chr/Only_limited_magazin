@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Меню кладовщика{% endblock %}
+{% block content %}
+<h2>Меню кладовщика</h2>
+<div class="roles" style="max-width: 600px;">
+    <a href="/keeper/inventory" class="role-card">
+        <h3>📦 Инвентаризация</h3>
+        <p>Ввод реальных остатков по существующим товарам</p>
+    </a>
+    <a href="/keeper/add_product" class="role-card">
+    	<h3>➕ Добавить товар</h3>
+	    <p>Ввод новой позиции</p>
+    </a>
+</div>
+{% endblock %}
+
