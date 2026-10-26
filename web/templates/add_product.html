@@ -19,11 +19,26 @@
 
     <div class="form-group">
         <label>Платформа:</label>
-        <select name="platformId" id="platformId" required>
-            {% for p in platforms %}
-            <option value="{{ p['platformId'] }}">{{ p['platformName'] }} {{ p['platformVersion'] }}</option>
-            {% endfor %}
-        </select>
+        <div style="display:flex; gap:6px;">
+            <!-- Список названий платформ -->
+            <select name="platformName" id="platformName" required style="flex: 2;" onchange="updateVersions()">
+                
+                {% set ns = namespace(seen=[]) %}
+                {% for p in platforms %}
+                    {% if p['platformName'] not in ns.seen %}
+                        <option value="{{ p['platformName'] }}">{{ p['platformName'] }}</option>
+                        {% set ns.seen = ns.seen + [p['platformName']] %}
+                    {% endif %}
+                {% endfor %}
+            </select>
+            
+            <!-- Список версий для выбранной платформы -->
+            <select name="platformVersion" id="platformVersion" required style="flex: 1;">
+                <option value="">-- Версия --</option>
+            </select>
+            
+            <button type="button" class="btn-small" onclick="openModal('modal-platform')">+</button>
+        </div>
     </div>
 
     <div class="form-group">
@@ -34,9 +49,12 @@
             <option value="{{ g['baseGameName'] }}">
             {% endfor %}
         </datalist>
+        <small style="color: #7f8c8d; display: block; margin-top: 4px;">
+            Если игры нет в списке — просто введите её название, и она будет создана автоматически.
+        </small>
     </div>
 
-    <div class="form-group">
+    <div class="form-group" id="block-edition">
         <label>Издание:</label>
         <div style="display:flex; gap:6px;">
             <select name="editionId" id="editionId" required>
@@ -48,7 +66,7 @@
         </div>
     </div>
 
-    <div class="form-group">
+    <div class="form-group" id="block-region">
         <label>Регион:</label>
         <select name="regionId" id="regionId" required>
             {% for r in regions %}
@@ -57,7 +75,7 @@
         </select>
     </div>
 
-    <div class="form-group">
+    <div class="form-group" >
         <label>Издатель:</label>
         <div style="display:flex; gap:6px;">
             <select name="publisherId" id="publisherId" required>
@@ -69,17 +87,17 @@
         </div>
     </div>
 
-    <div class="form-group">
+    <div class="form-group" id="block-release-year">
         <label>Год первого релиза (необязательно):</label>
-        <input type="number" name="firstReleaseYear" min="1950" max="2100">
+        <input type="text" inputmode="numeric" name="firstReleaseYear" id="firstReleaseYear" placeholder="1990" maxlength="4" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 4);">
     </div>
 
-    <div class="form-group">
+    <div class="form-group" id="block-edition-year">
         <label>Год выпуска этой версии (необязательно):</label>
-        <input type="number" name="firstYearEdition" min="1950" max="2100">
+        <input type="text" inputmode="numeric" name="firstYearEdition" id="firstYearEdition" placeholder="2020" maxlength="4" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 4);">
     </div>
 
-    <div class="form-group">
+    <div class="form-group" id="block-audience">
         <label>Возрастной рейтинг:</label>
         <select name="audience">
             <option value="">Не указан</option>
@@ -116,7 +134,7 @@
 	    <input type="text" inputmode="numeric" id="quantity" name="quantity" value="0" maxlength="3" autocomplete="off">
     </div>
 
-    <button type="submit" class="btn-primary">💾 Сохранить товар</button>
+    <button type="button" class="btn-primary" onclick="showConfirmation()">🔍 Проверить данные</button>
 </form>
 
 <style>
@@ -131,6 +149,34 @@
 </style>
 
 <script>
+    // Умные поля
+    const typeSelect = document.getElementById('typeGoodId');
+    const blocks = {
+        edition: document.getElementById('block-edition'),
+        region: document.getElementById('block-region'),
+        releaseYear: document.getElementById('block-release-year'),
+        editionYear: document.getElementById('block-edition-year'),
+        audience: document.getElementById('block-audience')
+    };
+
+    function updateFieldsVisibility() {
+        const typeId = typeSelect.value;
+        // Получаем название типа из option
+        const typeName = typeSelect.options[typeSelect.selectedIndex].text.toLowerCase();
+
+        // Если это игра или сборник — показываем всё
+        if (typeName.includes('game') || typeName.includes('bundle')) {
+            Object.values(blocks).forEach(b => { if (b) b.style.display = 'block'; });
+        } else {
+            // Для остального (фигурки, стилбуки) — скрываем
+            Object.values(blocks).forEach(b => { if (b) b.style.display = 'none'; });
+        }
+    }
+
+    typeSelect.addEventListener('change', updateFieldsVisibility);
+    updateFieldsVisibility();
+
+
     // 1. Загрузка курсов валют
     let rates = { RUB: 1.0, USD: 92.5, EUR: 100.2, GBP: 117.4 };
     fetch('/api/rates')
@@ -228,6 +274,41 @@
         if (val < 0) val = 0;
         qtyInput.value = val;
     });
+
+    // Данные о платформах из базы (передаем через Jinja)
+    const allPlatforms = [
+        {% for p in platforms %}
+        { name: "{{ p['platformName'] }}", version: "{{ p['platformVersion'] }}" },
+        {% endfor %}
+    ];
+
+    function updateVersions() {
+        const selectedName = document.getElementById('platformName').value;
+        const versionSelect = document.getElementById('platformVersion');
+        
+        // Очищаем текущие версии
+        versionSelect.innerHTML = '<option value="">-- Версия --</option>';
+        
+        if (!selectedName) return;
+
+        // Фильтруем платформы по выбранному названию
+        const filtered = allPlatforms.filter(p => p.name === selectedName);
+        
+        // Добавляем отфильтрованные версии
+        filtered.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.version;
+            opt.textContent = p.version;
+            versionSelect.appendChild(opt);
+        });
+        
+        // Если версия всего одна, выбираем её автоматически
+        if (filtered.length === 1) {
+            versionSelect.value = filtered[0].version;
+        }
+    }
+
+
 </script>
 
 <!-- Модальное окно для типа товара -->
@@ -290,6 +371,101 @@
     // Функции для открытия модальных окон
     function openModal(id) {
         document.getElementById(id).style.display = 'flex';
+    }
+</script>
+
+<!-- Модальное окно для платформы -->
+<div id="modal-platform" class="modal" style="display:none;">
+    <div class="modal-content">
+        <h3>Новая платформа</h3>
+        <form method="post" action="/api/add_platform" autocomplete="off">
+            <input type="text" id="new-platform-name" name="platformName" placeholder="Название (например, PlayStation)" required autocomplete="off">
+            <input type="text" id="new-platform-version" name="platformVersion" placeholder="Версия (например, 4, 5, Mega Drive)" required autocomplete="off">
+            <div class="modal-actions">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="document.getElementById('modal-platform').style.display='none'">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Модальное окно подтверждения -->
+<div id="modal-confirm" class="modal" style="display:none;">
+    <div class="modal-content" style="min-width: 400px;">
+        <h3>Проверьте данные товара</h3>
+        <div id="confirm-content" style="margin-bottom: 20px; line-height: 1.6;"></div>
+        <div class="modal-actions">
+            <button type="button" class="btn-primary" onclick="document.getElementById('add-product-form').submit()">✅ Всё верно, сохранить</button>
+            <button type="button" class="btn-secondary" onclick="document.getElementById('modal-confirm').style.display='none'">✏️ Исправить</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    function showConfirmation() {
+        const form = document.getElementById('add-product-form');
+        const formData = new FormData(form);
+  	
+        // --- ПРОВЕРКА ГОДОВ ---
+        const relYear = document.getElementById('firstReleaseYear').value;
+        const edYear = document.getElementById('firstYearEdition').value;
+        
+        // Проверка на допустимые значения (1990 - 2100)
+        if (relYear && (parseInt(relYear) < 1990 || parseInt(relYear) > 2100)) {
+            alert('Год первого релиза должен быть между 1990 и 2100.');
+            return; // Останавливаем выполнение, окно не открывается
+        }
+        if (edYear && (parseInt(edYear) < 1990 || parseInt(edYear) > 2100)) {
+            alert('Год выпуска версии должен быть между 1990 и 2100.');
+            return;
+        }
+        
+        // Проверка на логику: версия не может быть раньше релиза
+        if (relYear && edYear && parseInt(edYear) < parseInt(relYear)) {
+            alert('Год выпуска версии не может быть меньше года первого релиза!');
+            return;
+        }
+        
+        // Словарь перевода технических имен в русские
+        const labels = {
+            'typeGoodId': 'Тип товара',
+            'platformName': 'Платформа',
+            'platformVersion': 'Версия платформы',
+            'gameName': 'Название игры',
+            'editionId': 'Издание',
+            'regionId': 'Регион',
+            'publisherId': 'Издатель',
+            'firstReleaseYear': 'Год первого релиза',
+            'firstYearEdition': 'Год этой версии',
+            'audience': 'Возрастной рейтинг',
+            'priceRub': 'Цена (RUB)',
+            'priceUsd': 'Цена (USD)',
+            'priceEur': 'Цена (EUR)',
+            'priceGbp': 'Цена (GBP)',
+            'quantity': 'Количество'
+        };
+        
+        let html = '<ul style="padding-left: 20px;">';
+        for (let [key, value] of formData.entries()) {
+            if (value.trim() !== '') {
+                // Если поле есть в словаре — берем русское название, иначе оставляем как есть
+                let label = labels[key] || key;
+                
+                // Для select-полей (где value = ID) подменяем ID на текст
+                if (key === 'typeGoodId' || key === 'editionId' || key === 'regionId' || key === 'publisherId') {
+                    const select = form.querySelector(`[name="${key}"]`);
+                    if (select) {
+                        value = select.options[select.selectedIndex].text;
+                    }
+                }
+                
+                html += `<li><b>${label}:</b> ${value}</li>`;
+            }
+        }
+        html += '</ul>';
+        
+        document.getElementById('confirm-content').innerHTML = html;
+        document.getElementById('modal-confirm').style.display = 'flex';
     }
 </script>
 
