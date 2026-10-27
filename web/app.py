@@ -17,23 +17,16 @@ app.include_router(keeper.router)
 app.include_router(api.router)
 app.include_router(seller.router)
 
+
+# Главная страница (GET + HEAD)
 @app.get("/", response_class=HTMLResponse)
+@app.head("/")
 def index(request: Request):
     return templates.TemplateResponse(request, "index.html")
 
+
+# Healthcheck для Timeweb (GET + HEAD)
 @app.get("/health")
+@app.head("/health")
 def health():
     return {"status": "ok"}
-
-@app.head("/")
-def head_root():
-    return {"status": "ok"}
-
-@app.get("/", response_class=HTMLResponse)
-def index(request: Request):
-    return templates.TemplateResponse(request, "index.html")
-
-@app.head("/")
-def head_root():
-    return {}
-
