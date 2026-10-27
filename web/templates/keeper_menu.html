@@ -2,6 +2,10 @@
 {% block title %}Меню кладовщика{% endblock %}
 {% block content %}
 <h2>Меню кладовщика</h2>
+<form action="/keeper/restore" method="post" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".sqlite3">
+    <button type="submit">Загрузить базу</button>
+</form>
 <div class="roles" style="max-width: 600px;">
     <a href="/keeper/inventory" class="role-card">
         <h3>📦 Инвентаризация</h3>
@@ -10,6 +14,11 @@
     <a href="/keeper/add_product" class="role-card">
     	<h3>➕ Добавить товар</h3>
 	    <p>Ввод новой позиции</p>
+    </a>
+
+    <a href="/keeper/backup" class="role-card">
+	    <h3>💾 Скачать базу</h3>
+	     <p>Резервная копия (SQLite)</p>
     </a>
 </div>
 {% endblock %}

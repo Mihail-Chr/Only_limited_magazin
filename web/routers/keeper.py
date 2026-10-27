@@ -6,6 +6,9 @@ from pydantic import BaseModel
 import time
 from pathlib import Path
 from src.db import get_conn
+from fastapi.responses import FileResponse
+from fastapi import UploadFile, File
+import shutil
 
 router = APIRouter(prefix="/keeper", tags=["keeper"])
 
@@ -35,6 +38,13 @@ def keeper_inventory(request: Request):
             """
         ).fetchall()
     return templates.TemplateResponse(request, "keeper_inventory.html", {"rows": rows})
+
+@router.get("/backup")
+def download_backup():
+    db_path = Path("db/only_limited.sqlite3")
+    if not db_path.exists():
+        return {"error": "База не найдена"}
+    return FileResponse(db_path, media_type="application/octet-stream", filename="only_limited.sqlite3")
 
 @router.post("/inventory/bulk_save")
 def bulk_save_stock(items: List[StockItem]):
@@ -74,6 +84,13 @@ def add_product_page(request: Request):
         "typeGoods": typeGoods, "platforms": platforms, "editions": editions,
         "regions": regions, "publishers": publishers, "games": games
     })
+
+@router.post("/restore")
+async def restore_backup(file: UploadFile = File(...)):
+    # Сохраняем загруженный файл поверх текущей базы
+    with open("db/only_limited.sqlite3", "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    return RedirectResponse("/keeper?ok=База восстановлена", status_code=303)
 
 @router.post("/add_product")
 def add_product_submit(
