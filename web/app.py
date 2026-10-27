@@ -23,7 +23,7 @@ def index(request: Request):
 
 @app.get("/health")
 def health():
-    return {"status": 
+    return {"status": "ok"}
 
 @app.head("/")
 def head_root():
