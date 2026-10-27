@@ -25,7 +25,7 @@ config.local.json
 *.sql.gz
 backup/
 
-db/*.sqlite3
+# db/*.sqlite3
 logs/*
 data/api_raw/*
 data/exports/*
