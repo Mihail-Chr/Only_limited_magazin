@@ -117,7 +117,7 @@ def load_settings() -> Settings:
         db_driver=os.getenv("DB_DRIVER", "sqlite"),
         db_path=(BASE_DIR / os.getenv("DB_PATH", "./db/only_limited.sqlite3")).resolve(),
         ozon_base_url=os.getenv("OZON_API_BASE_URL", "https://api-seller.ozon.ru"),
-        ozon_timeout=int(os.getenv("OZON_API_TIMEOUT", "30")),
+        ozon_timeout=int(os.getenv("OZON_API_TIMEOUT", "30").split("#")[0].strip()),
         ozon_retry_max=int(os.getenv("OZON_API_RETRY_MAX", "3")),
         ozon_retry_backoff=int(os.getenv("OZON_API_RETRY_BACKOFF", "2")),
         ozon_rate_limit_per_sec=int(os.getenv("OZON_RATE_LIMIT_PER_SEC", "5")),
