@@ -1,0 +1,9 @@
+.venv
+__pycache__
+*.pyc
+.git
+.gitignore
+docs
+data
+scratch
+*.sqlite3-journal
