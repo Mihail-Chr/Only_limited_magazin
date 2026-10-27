@@ -23,4 +23,17 @@ def index(request: Request):
 
 @app.get("/health")
 def health():
+    return {"status": 
+
+@app.head("/")
+def head_root():
     return {"status": "ok"}
+
+@app.get("/", response_class=HTMLResponse)
+def index(request: Request):
+    return templates.TemplateResponse(request, "index.html")
+
+@app.head("/")
+def head_root():
+    return {}
+
