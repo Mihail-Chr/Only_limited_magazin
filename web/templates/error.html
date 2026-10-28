@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Ошибка — Only_limited_magazin{% endblock %}
+{% block content %}
+<div style="text-align: center; padding: 50px;">
+    <h1 style="font-size: 48px; color: #e74c3c; margin-bottom: 20px;">Упс!</h1>
+    <h2 style="color: #2c3e50;">Что-то пошло не так</h2>
+    <p style="color: #7f8c8d; font-size: 18px; margin-bottom: 30px;">
+        {{ error_message | default("Произошла непредвиденная ошибка. Попробуйте обновить страницу или вернуться в меню.") }}
+    </p>
+    <a href="/" class="btn-primary" style="display: inline-block; padding: 12px 24px; text-decoration: none; font-size: 16px;">
+        Вернуться на главную
+    </a>
+</div>
+{% endblock %}

@@ -2,7 +2,9 @@
 {% block title %}Добавить товар{% endblock %}
 {% block content %}
 <h2>Добавление нового товара</h2>
-<p><a href="/keeper">← Назад в меню</a></p>
+<div style="margin-bottom: 15px;">
+    <a href="/keeper" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 10px 20px;">← Вернуться в меню</a>
+</div>
 
 <form id="add-product-form" method="post" action="/keeper/add_product" autocomplete="off">
     <div class="form-group">

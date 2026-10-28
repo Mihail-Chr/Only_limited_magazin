@@ -28,15 +28,20 @@ def keeper_menu(request: Request):
 @router.get("/inventory", response_class=HTMLResponse)
 def keeper_inventory(request: Request):
     with get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT p.id, p.offer_id, p.name, COALESCE(sm.quantity, 0) AS physical_qty
-            FROM product p
-            LEFT JOIN stock_manual sm ON sm.product_id = p.id
-            ORDER BY p.name ASC
-            LIMIT 200
-            """
-        ).fetchall()
+        try:
+            rows = conn.execute(
+                """
+                SELECT p.id, p.offer_id, p.name, COALESCE(sm.quantity, 0) AS physical_qty
+                FROM product p
+                LEFT JOIN stock_manual sm ON sm.product_id = p.id
+                ORDER BY p.name ASC
+                LIMIT 200
+                """
+            ).fetchall()
+        except Exception:
+            # Если таблицы нет — возвращаем пустой список
+            rows = []
+    
     return templates.TemplateResponse(request, "keeper_inventory.html", {"rows": rows})
 
 @router.get("/backup")
@@ -45,6 +50,10 @@ def download_backup():
     if not db_path.exists():
         return {"error": "База не найдена"}
     return FileResponse(db_path, media_type="application/octet-stream", filename="only_limited.sqlite3")
+
+@router.get("/backup_menu", response_class=HTMLResponse)
+def backup_menu(request: Request):
+    return templates.TemplateResponse(request, "backup_menu.html")
 
 @router.post("/inventory/bulk_save")
 def bulk_save_stock(items: List[StockItem]):
@@ -69,8 +78,17 @@ def bulk_save_stock(items: List[StockItem]):
     return {"ok": True, "changes": changes}
 
 # --- Добавление товара ---
+
 @router.get("/add_product", response_class=HTMLResponse)
 def add_product_page(request: Request):
+    with get_conn() as conn:
+        # Проверяем, есть ли хотя бы один тип товара
+        typeGoods = conn.execute('SELECT "typeGoodId", "typeGoodName" FROM "typeGoods" ORDER BY "sortOrder"').fetchall()
+        if not typeGoods:
+            return templates.TemplateResponse(request, "error.html", {
+                "error_message": "Справочники пусты. Сначала добавьте типы товаров в базу."
+            }, status_code=200)
+
     with get_conn() as conn:
         typeGoods = conn.execute('SELECT "typeGoodId", "typeGoodName" FROM "typeGoods" ORDER BY "sortOrder"').fetchall()
         # Передаем платформы как есть, чтобы в шаблоне можно было разбить на название и версию
