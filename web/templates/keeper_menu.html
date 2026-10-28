@@ -2,10 +2,8 @@
 {% block title %}Меню кладовщика{% endblock %}
 {% block content %}
 <h2>Меню кладовщика</h2>
-<form action="/keeper/restore" method="post" enctype="multipart/form-data">
-    <input type="file" name="file" accept=".sqlite3">
-    <button type="submit">Загрузить базу</button>
-</form>
+<a href="/" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #2c3e50; color: white; font-weight: bold; margin-bottom: 20px;">← На главную</a>
+
 <div class="roles" style="max-width: 600px;">
     <a href="/keeper/inventory" class="role-card">
         <h3>📦 Инвентаризация</h3>
@@ -15,17 +13,12 @@
     	<h3>➕ Добавить товар</h3>
 	    <p>Ввод новой позиции</p>
     </a>
+    <a href="/keeper/backup_menu" class="role-card">
+    	<h3>💾 Резервная копия</h3>
+	    <p>Сохранение и загрузка базы данных</p>
+    </a>
 </div>
-<div class="role-card" style="background: #f9f9f9; border: 1px dashed #ccc;">
-    <h3>💾 Резервная копия</h3>
-    <p>Скачать текущую базу:</p>
-    <a href="/keeper/backup" class="btn-primary" style="display:inline-block; margin-bottom:10px;">Скачать базу</a>
-    <hr style="margin: 10px 0;">
-    <p>Загрузить базу из файла:</p>
-    <form action="/keeper/restore" method="post" enctype="multipart/form-data">
-        <input type="file" name="file" accept=".sqlite3" style="margin-bottom:10px;">
-        <button type="submit" class="btn-primary">Загрузить</button>
-    </form>
-</div>
+
+
 {% endblock %}
 

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Резервная копия{% endblock %}
+{% block content %}
+<h2>Резервная копия</h2>
+<a href="/keeper" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #2c3e50; color: white; font-weight: bold; margin-bottom: 20px;">← Вернуться в меню</a>
+
+<div class="roles" style="max-width: 600px;">
+    <!-- Скачать базу -->
+    <a href="/keeper/backup" class="role-card" style="text-align: center;">
+        <h3>📥 Сохранить</h3>
+        <p>Скачать текущую базу данных на компьютер</p>
+    </a>
+
+    <!-- Загрузить базу -->
+    <div class="role-card" style="text-align: center;">
+        <h3>📤 Загрузить</h3>
+        <p>Восстановить базу из файла</p>
+        <form id="restore-form" action="/keeper/restore" method="post" enctype="multipart/form-data" onsubmit="return validateRestoreForm()" style="margin-top: 15px;">
+            <input type="file" id="restore-file" name="file" accept=".sqlite3" style="display: none;" onchange="checkFileSelected()">
+            <button type="button" class="btn-primary" onclick="document.getElementById('restore-file').click()" style="width: 100%; margin-bottom: 10px;">
+                Выбрать файл
+            </button>
+            <span id="file-name-display" style="color: #7f8c8d; font-size: 14px; display: block; margin-bottom: 10px;">Файл не выбран</span>
+            <button type="submit" id="restore-btn" class="btn-primary" style="display: none; width: 100%;">
+                Загрузить базу
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+    function checkFileSelected() {
+        const fileInput = document.getElementById('restore-file');
+        const btn = document.getElementById('restore-btn');
+        const fileNameDisplay = document.getElementById('file-name-display');
+        
+        if (fileInput.files && fileInput.files.length > 0) {
+            const file = fileInput.files[0];
+            if (!file.name.endsWith('.sqlite3')) {
+                alert('Пожалуйста, выберите файл базы данных с расширением .sqlite3');
+                fileInput.value = '';
+                fileNameDisplay.textContent = 'Файл не выбран';
+                btn.style.display = 'none';
+                return;
+            }
+            fileNameDisplay.textContent = file.name;
+            btn.style.display = 'inline-block';
+        } else {
+            fileNameDisplay.textContent = 'Файл не выбран';
+            btn.style.display = 'none';
+        }
+    }
+
+    function validateRestoreForm() {
+        const fileInput = document.getElementById('restore-file');
+        if (!fileInput.files || fileInput.files.length === 0) {
+            alert('Пожалуйста, выберите файл базы данных перед загрузкой.');
+            return false;
+        }
+        return confirm('Вы уверены, что хотите заменить текущую базу данных? Это действие необратимо!');
+    }
+</script>
+{% endblock %}
