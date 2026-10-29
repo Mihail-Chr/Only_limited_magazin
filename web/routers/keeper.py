@@ -31,15 +31,19 @@ def keeper_inventory(request: Request):
         try:
             rows = conn.execute(
                 """
-                SELECT p.id, p.offer_id, p.name, COALESCE(sm.quantity, 0) AS physical_qty
+                SELECT 
+                    p.id, 
+                    p.offer_id, 
+                    p.baseGameName AS name, 
+                    p.platform,
+                    COALESCE(sm.quantity, 0) AS physical_qty
                 FROM product p
                 LEFT JOIN stock_manual sm ON sm.product_id = p.id
-                ORDER BY p.name ASC
-                LIMIT 200
+                ORDER BY p.baseGameName ASC
+                LIMIT 500
                 """
             ).fetchall()
         except Exception:
-            # Если таблицы нет — возвращаем пустой список
             rows = []
     
     return templates.TemplateResponse(request, "keeper_inventory.html", {"rows": rows})
@@ -152,3 +156,9 @@ def add_product_submit(
         conn.execute('INSERT INTO stock_manual (product_id, quantity) VALUES (?, ?)', (product_id, to_int(quantity) or 0))
         conn.commit()
     return RedirectResponse("/keeper/inventory?ok=Товар успешно добавлен", status_code=303)
+
+@router.get("/manage_products", response_class=HTMLResponse)
+def manage_products(request: Request):
+    with get_conn() as conn:
+        rows = conn.execute("SELECT id, offer_id, baseGameName AS name, platform FROM product ORDER BY baseGameName ASC LIMIT 500").fetchall()
+    return templates.TemplateResponse(request, "manage_products.html", {"rows": rows})

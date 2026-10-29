@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Управление товарами{% endblock %}
+{% block content %}
+<h2>Управление товарами</h2>
+<div style="margin-bottom: 15px;">
+    <a href="/keeper" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #2c3e50; color: white; font-weight: bold; margin-bottom: 20px;">← Вернуться в меню</a>
+    <a href="/keeper/add_product" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #27ae60; color: white; font-weight: bold; margin-bottom: 20px; margin-left: 10px;">➕ Добавить новый товар</a>
+</div>
+
+<!-- Поиск -->
+<div style="margin-bottom: 15px;">
+    <input type="text" id="search-input" placeholder="Поиск по названию..." style="width: 100%; max-width: 400px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px;">
+</div>
+
+<table id="manage-table">
+    <thead>
+        <tr>
+            <th>Артикул</th>
+            <th onclick="sortTable(1)" style="cursor: pointer; user-select: none;">Название <span id="sort-name-icon">↕</span></th>
+            <th onclick="sortTable(2)" style="cursor: pointer; user-select: none;">Платформа <span id="sort-platform-icon">↕</span></th>
+            <th>Действие</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in rows %}
+        <tr>
+            <td>{{ r["offer_id"] }}</td>
+            <td>{{ r["name"] }}</td>
+            <td>{{ r["platform"] or "—" }}</td>
+            <td>
+                <a href="/keeper/edit_product/{{ r['id'] }}" class="btn-primary" style="display: inline-block; padding: 8px 16px; text-decoration: none; font-size: 14px;">Редактировать</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<script>
+    // --- Поиск по названию ---
+    const searchInput = document.getElementById('search-input');
+    searchInput.addEventListener('input', function() {
+        const query = this.value.toLowerCase().trim();
+        document.querySelectorAll('#manage-table tbody tr').forEach(row => {
+            const name = row.querySelector('td:nth-child(2)').textContent.toLowerCase();
+            if (name.includes(query)) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    });
+
+    // --- Сортировка ---
+    let sortDirection = {};
+    let secondarySortColumn = null;
+
+    function sortTable(columnIndex) {
+        const table = document.getElementById('manage-table');
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        
+        if (!sortDirection[columnIndex]) {
+            sortDirection[columnIndex] = 1;
+        } else {
+            sortDirection[columnIndex] *= -1;
+        }
+        const direction = sortDirection[columnIndex];
+        
+        if (columnIndex === 2) secondarySortColumn = 1;
+        else if (columnIndex === 1) secondarySortColumn = 2;
+        else secondarySortColumn = null;
+        
+        rows.sort((a, b) => {
+            const getText = (row, idx) => row.querySelector(`td:nth-child(${idx + 1})`).textContent.trim();
+            const compare = (valA, valB) => {
+                return valA.localeCompare(valB, 'ru') * direction;
+            };
+            const result = compare(getText(a, columnIndex), getText(b, columnIndex));
+            if (result !== 0) return result;
+            if (secondarySortColumn !== null) {
+                return compare(getText(a, secondarySortColumn), getText(b, secondarySortColumn));
+            }
+            return 0;
+        });
+        
+        rows.forEach(row => tbody.appendChild(row));
+        
+        document.getElementById('sort-name-icon').textContent = '↕';
+        document.getElementById('sort-platform-icon').textContent = '↕';
+        if (columnIndex === 1) document.getElementById('sort-name-icon').textContent = direction === 1 ? '↑' : '↓';
+        if (columnIndex === 2) document.getElementById('sort-platform-icon').textContent = direction === 1 ? '↑' : '↓';
+    }
+</script>
+{% endblock %}
