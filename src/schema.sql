@@ -85,24 +85,24 @@ CREATE TABLE IF NOT EXISTS product (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     offer_id            TEXT NOT NULL UNIQUE,
     name                TEXT NOT NULL,
-    baseGameName        TEXT,                   -- базовое название игры (без издания/платформы)
+    baseGameName        TEXT,                   -- базовое название игры
     brand               TEXT,
-    product_type        TEXT,                   -- 'game', 'bundle', 'steelbook' и т.д.
+    product_type        TEXT,                   -- 'game', 'bundle', 'steelbook'
     platform            TEXT,                   -- 'PlayStation 4', 'Nintendo Switch 1'
     edition             TEXT,                   -- 'Deluxe', 'Ultimate', 'Standard'
     age_rating          TEXT,                   -- '18+', '12+'
     genre               TEXT,                   -- 'Action', 'Horror'
     publisher           TEXT,                   -- издатель
     developer           TEXT,                   -- разработчик
-    media_type          TEXT,                   -- 'Blu-ray', 'Cartridge'
-    media_count         INTEGER,                -- количество носителей
-    release_year        INTEGER,                -- год релиза
-    firstReleaseYear    INTEGER,                -- год первого релиза (для аналитики)
+    media_type          TEXT,
+    media_count         INTEGER,
+    release_year        INTEGER,
+    firstReleaseYear    INTEGER,                -- год первого релиза
     firstYearEdition    INTEGER,                -- год выпуска этой версии
-    remakeYear          INTEGER,                -- год ремейка (если есть)
-    language            TEXT,                   -- языки (JSON-строка)
-    view                TEXT,                   -- вид (для аксессуаров)
-    modes               TEXT,                   -- режимы игры
+    remakeYear          INTEGER,                -- год ремейка
+    language            TEXT,
+    view                TEXT,
+    modes               TEXT,
     weight_g            INTEGER,
     width_mm            INTEGER,
     height_mm           INTEGER,
@@ -112,18 +112,21 @@ CREATE TABLE IF NOT EXISTS product (
     country_of_origin   TEXT,
     package_type        TEXT,
     package_size        TEXT,
-    cost_price_synthetic REAL,                  -- искусственная себестоимость (для маржи)
-    cost_price_real     REAL,                   -- реальная себестоимость (если известна)
-    avg_market_price    REAL,                   -- средняя цена на рынке (для агента закупок)
+    cost_price_synthetic REAL,                  -- искусственная себестоимость
+    cost_price_real     REAL,                   -- реальная себестоимость
+    avg_market_price    REAL,                   -- средняя цена на рынке
     avg_market_price_updated_at TEXT,
+    is_active           INTEGER NOT NULL DEFAULT 1, -- <--- ВОТ ОНО, ТО САМОЕ ПОЛЕ
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
 -- Индексы для поиска товаров
+CREATE INDEX IF NOT EXISTS idx_product_offer_id ON product(offer_id);
+CREATE INDEX IF NOT EXISTS idx_product_name ON product(name);
 CREATE INDEX IF NOT EXISTS idx_product_base_name ON product(baseGameName);
 CREATE INDEX IF NOT EXISTS idx_product_type ON product(product_type);
 CREATE INDEX IF NOT EXISTS idx_product_platform ON product(platform);
+CREATE INDEX IF NOT EXISTS idx_product_is_active ON product(is_active);
 
 -- Публикация товара в конкретном магазине (листинг)
 CREATE TABLE IF NOT EXISTS listing (
