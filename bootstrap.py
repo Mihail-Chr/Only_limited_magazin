@@ -80,27 +80,33 @@ def main():
     run_step("Добавление магазинов и склада", ["python", "add_stores.py"])
     
     # 4. Загрузка товаров (два магазина)
-    run_step("Загрузка товаров (LimitedGames)", ["python", "-m", "src.scripts.fetch_products", "limited_games"])
-    run_step("Загрузка товаров (Console Games)", ["python", "-m", "src.scripts.fetch_products", "console_games"])
+    run_step("Загрузка товаров (LimitedGames)", ["python", "-m", "src.scripts.fetch_products", "ozon", "limited_games"])
+    run_step("Загрузка товаров (Console Games)", ["python", "-m", "src.scripts.fetch_products", "ozon", "console_games"])
     
-    # 5. Удаление заглушек
-    run_step("Удаление заглушек", ["python", "-m", "src.scripts.clean_stubs"], critical=False)
-    
-    # 6. Загрузка цен и остатков
-    run_step("Загрузка цен (LimitedGames)", ["python", "-m", "src.scripts.fetch_product_details", "limited_games"])
-    run_step("Загрузка цен (Console Games)", ["python", "-m", "src.scripts.fetch_product_details", "console_games"])
-    
-    # 7. Загрузка истории продаж (пример за 2026 год, можно расширить)
-    run_step("Загрузка продаж (LimitedGames 2026)", ["python", "-m", "src.scripts.fetch_postings", "limited_games", "2026-01-01", "2026-12-31"])
-    run_step("Загрузка продаж (Console Games 2026)", ["python", "-m", "src.scripts.fetch_postings", "console_games", "2026-01-01", "2026-12-31"])
-    
-    # 8. Парсинг названий
+    # 5. Парсинг названий (до удаления заглушек!)
     run_step("Парсинг названий", ["python", "-m", "src.scripts.parse_names"])
     
-    # 9. Склейка дублей (пока в разработке)
+    # 6. Удаление заглушек (тех, что остались "Новый товар")
+    run_step("Удаление заглушек", ["python", "-m", "src.scripts.clean_stubs"], critical=False)
+    
+    # 7. Склейка дублей (пока в разработке)
     run_step("Склейка дублей (отложено)", ["python", "-m", "src.scripts.merge_duplicates"], critical=False)
     
-    print(f"\n{GREEN}🎉 Все шаги выполнены успешно!{RESET}")
+    # 8. Загрузка цен и остатков
+    run_step("Загрузка цен (LimitedGames)", ["python", "-m", "src.scripts.fetch_product_details", "ozon", "limited_games"])
+    run_step("Загрузка цен (Console Games)", ["python", "-m", "src.scripts.fetch_product_details", "ozon", "console_games"])
+    
+    # 9. Загрузка истории продаж (все годы для каждого магазина)
+    # LimitedGames: 2022-2026
+    run_step("Загрузка продаж (LimitedGames 2022)", ["python", "-m", "src.scripts.fetch_postings", "ozon", "limited_games", "2022-01-01", "2022-12-31"])
+    run_step("Загрузка продаж (LimitedGames 2023)", ["python", "-m", "src.scripts.fetch_postings", "ozon", "limited_games", "2023-01-01", "2023-12-31"])
+    run_step("Загрузка продаж (LimitedGames 2024)", ["python", "-m", "src.scripts.fetch_postings", "ozon", "limited_games", "2024-01-01", "2024-12-31"])
+    run_step("Загрузка продаж (LimitedGames 2025)", ["python", "-m", "src.scripts.fetch_postings", "ozon", "limited_games", "2025-01-01", "2025-12-31"])
+    run_step("Загрузка продаж (LimitedGames 2026)", ["python", "-m", "src.scripts.fetch_postings", "ozon", "limited_games", "2026-01-01", "2026-12-31"])
+    
+    # Console Games: 2025-2026
+    run_step("Загрузка продаж (Console Games 2025)", ["python", "-m", "src.scripts.fetch_postings", "ozon", "console_games", "2025-01-01", "2025-12-31"], critical=False)
+    run_step("Загрузка продаж (Console Games 2026)", ["python", "-m", "src.scripts.fetch_postings", "ozon", "console_games", "2026-01-01", "2026-12-31"])
 
 if __name__ == "__main__":
     main()

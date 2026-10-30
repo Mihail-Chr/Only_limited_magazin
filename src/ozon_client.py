@@ -1,3 +1,6 @@
+"""
+HTTP-клиент для OZON API.
+"""
 import time
 import requests
 from .config import settings, Store
@@ -5,14 +8,16 @@ from .config import settings, Store
 
 class OzonClient:
     def __init__(self, store: Store):
-        if not store.has_api or not store.client_id or not store.api_key:
-            raise ValueError(f"У магазина {store.code} нет API-доступа")
+        # Проверяем, что у магазина есть ключи
+        if not store.store_id or not store.store_key:
+            raise ValueError(f"У магазина {store.code} нет API-доступа (ID или KEY пусты)")
+        
         self.store = store
         self.session = requests.Session()
         self.session.headers.update(
             {
-                "Client-Id": store.client_id,
-                "Api-Key": store.api_key,
+                "Client-Id": store.store_id,
+                "Api-Key": store.store_key,
                 "Content-Type": "application/json",
             }
         )
@@ -27,7 +32,8 @@ class OzonClient:
 
     def post(self, path: str, payload: dict) -> dict:
         url = f"{settings.ozon_base_url}{path}"
-        last_exc: Exception | None = None
+        last_exc = None
+        
         for attempt in range(1, settings.ozon_retry_max + 1):
             self._throttle()
             try:
@@ -39,8 +45,9 @@ class OzonClient:
                 return resp.json()
             except requests.RequestException as e:
                 if hasattr(e, 'response') and e.response is not None:
-                    print("!!! Ответ Ozon:", e.response.text) # <--- ДОБАВИТЬ ЭТО
+                    print(f"!!! Ответ Ozon: {e.response.text}")
                 last_exc = e
                 if attempt < settings.ozon_retry_max:
                     time.sleep(settings.ozon_retry_backoff * attempt)
+        
         raise RuntimeError(f"Ozon API failed after retries: {last_exc}")

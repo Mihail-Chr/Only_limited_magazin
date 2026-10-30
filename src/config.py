@@ -1,38 +1,33 @@
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Dict, List, Optional
 from dotenv import load_dotenv
 
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
-def _bool(v: str | None, default: bool = False) -> bool:
+def _bool(v: Optional[str], default: bool = False) -> bool:
     if v is None:
         return default
     return v.strip().lower() in ("1", "true", "yes", "y", "on")
 
-
 @dataclass
 class Store:
+    platform: str
     code: str
+    store_id: str
+    store_key: str
     name: str
-    client_id: str | None
-    api_key: str | None
-    has_api: bool
-    is_active: bool
-    api_role: str | None
-
 
 @dataclass
 class Warehouse:
     code: str
     name: str
     default_currency: str
-    supported_currencies: list[str]
+    supported_currencies: List[str]
     is_active: bool
-
 
 @dataclass
 class Settings:
@@ -50,42 +45,53 @@ class Settings:
     ozon_retry_backoff: int
     ozon_rate_limit_per_sec: int
 
-    stores: list[Store] = field(default_factory=list)
-    warehouses: list[Warehouse] = field(default_factory=list)
+    stores: Dict[str, Dict[str, Store]] = field(default_factory=dict)
+    warehouses: List[Warehouse] = field(default_factory=list)
 
     data_dir: Path = BASE_DIR / "data"
-    data_raw_xlsx: Path = BASE_DIR / "scratch" / "ozon_reports"
     data_api_raw: Path = BASE_DIR / "data" / "api_raw"
     data_exports: Path = BASE_DIR / "data" / "exports"
     log_dir: Path = BASE_DIR / "logs"
 
     log_level: str = "INFO"
     log_format: str = "json"
-    app_secret_key: str = ""
 
-
-def _load_stores() -> list[Store]:
-    stores: list[Store] = []
-    for i in (1, 2, 3):
-        code = os.getenv(f"OZON_STORE_{i}_CODE")
-        if not code:
+def _load_stores() -> Dict[str, Dict[str, Store]]:
+    """Собирает магазины из плоских переменных .env в словарь."""
+    stores = {}
+    platforms = ["ozon", "wb", "ym", "avito", "vk"]
+    
+    for platform in platforms:
+        prefix = platform.upper()
+        store_codes_str = os.getenv(f"{prefix}_STORES", "")
+        if not store_codes_str:
             continue
-        stores.append(
-            Store(
+        
+        stores[platform] = {}
+        store_codes = [c.strip() for c in store_codes_str.split(",") if c.strip()]
+        
+        for code in store_codes:
+            store_id = os.getenv(f"{prefix}_{code.upper()}_ID")
+            store_key = os.getenv(f"{prefix}_{code.upper()}_KEY")
+            store_name = os.getenv(f"{prefix}_{code.upper()}_NAME", code)
+            
+            # Проверка на пустые значения
+            if not store_id or not store_key:
+                print(f"⚠️ Магазин '{code}' на площадке '{platform}' пропущен: не заданы ID или KEY")
+                continue
+            
+            stores[platform][code] = Store(
+                platform=platform,
                 code=code,
-                name=os.getenv(f"OZON_STORE_{i}_NAME", code),
-                client_id=os.getenv(f"OZON_STORE_{i}_CLIENT_ID") or None,
-                api_key=os.getenv(f"OZON_STORE_{i}_API_KEY") or None,
-                has_api=_bool(os.getenv(f"OZON_STORE_{i}_HAS_API")),
-                is_active=_bool(os.getenv(f"OZON_STORE_{i}_IS_ACTIVE"), True),
-                api_role=os.getenv(f"OZON_STORE_{i}_API_ROLE") or None,
+                store_id=store_id,
+                store_key=store_key,
+                name=store_name,
             )
-        )
+    
     return stores
 
-
-def _load_warehouses() -> list[Warehouse]:
-    warehouses: list[Warehouse] = []
+def _load_warehouses() -> List[Warehouse]:
+    warehouses = []
     for i in (1,):
         code = os.getenv(f"WAREHOUSE_{i}_CODE")
         if not code:
@@ -97,16 +103,13 @@ def _load_warehouses() -> list[Warehouse]:
                 default_currency=os.getenv(f"WAREHOUSE_{i}_DEFAULT_CURRENCY", "RUB"),
                 supported_currencies=[
                     c.strip()
-                    for c in os.getenv(
-                        f"WAREHOUSE_{i}_SUPPORTED_CURRENCIES", "RUB"
-                    ).split(";")
+                    for c in os.getenv(f"WAREHOUSE_{i}_SUPPORTED_CURRENCIES", "RUB").split(";")
                     if c.strip()
                 ],
                 is_active=_bool(os.getenv(f"WAREHOUSE_{i}_IS_ACTIVE"), True),
             )
         )
     return warehouses
-
 
 def load_settings() -> Settings:
     return Settings(
@@ -118,29 +121,27 @@ def load_settings() -> Settings:
         db_path=(BASE_DIR / os.getenv("DB_PATH", "./db/only_limited.sqlite3")).resolve(),
         ozon_base_url=os.getenv("OZON_API_BASE_URL", "https://api-seller.ozon.ru"),
         ozon_timeout=int(os.getenv("OZON_API_TIMEOUT", "30").split("#")[0].strip()),
-        ozon_retry_max=int(os.getenv("OZON_API_RETRY_MAX", "3")),
-        ozon_retry_backoff=int(os.getenv("OZON_API_RETRY_BACKOFF", "2")),
-        ozon_rate_limit_per_sec=int(os.getenv("OZON_RATE_LIMIT_PER_SEC", "5")),
+        ozon_retry_max=int(os.getenv("OZON_API_RETRY_MAX", "3").split("#")[0].strip()),
+        ozon_retry_backoff=int(os.getenv("OZON_API_RETRY_BACKOFF", "2").split("#")[0].strip()),
+        ozon_rate_limit_per_sec=int(os.getenv("OZON_RATE_LIMIT_PER_SEC", "5").split("#")[0].strip()),
         stores=_load_stores(),
         warehouses=_load_warehouses(),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         log_format=os.getenv("LOG_FORMAT", "json"),
-        app_secret_key=os.getenv("APP_SECRET_KEY", ""),
     )
-
 
 settings = load_settings()
 
-
-def get_store(code: str) -> Store:
-    for s in settings.stores:
-        if s.code == code:
-            return s
-    raise KeyError(f"Магазин с кодом '{code}' не найден в .env")
-
+def get_store(platform: str, code: str) -> Store:
+    """Возвращает магазин по площадке и коду."""
+    if platform not in settings.stores:
+        raise KeyError(f"Площадка '{platform}' не найдена в .env")
+    if code not in settings.stores[platform]:
+        raise KeyError(f"Магазин '{code}' на площадке '{platform}' не найден")
+    return settings.stores[platform][code]
 
 def get_warehouse(code: str) -> Warehouse:
     for w in settings.warehouses:
         if w.code == code:
             return w
-    raise KeyError(f"Склад с кодом '{code}' не найден в .env")
+    raise KeyError(f"Склад '{code}' не найден в .env")

@@ -1,11 +1,11 @@
 import sqlite3
 import re
 
-# Подключаемся к базе (относительный путь, т.к. скрипт запускается из корня)
 conn = sqlite3.connect('db/only_limited.sqlite3')
 conn.row_factory = sqlite3.Row
 
-# Словарь типов товаров (первое слово в названии OZON -> наш typeGoodName)
+# ==================== СЛОВАРИ ====================
+
 TYPE_MAP = {
     'видеоигра': 'game',
     'стилбук': 'steelbook',
@@ -18,7 +18,6 @@ TYPE_MAP = {
     'игрушка': 'toy',
 }
 
-# Словарь платформ (сокращение в скобках -> полное название)
 PLATFORM_MAP = {
     'nsw': 'Nintendo Switch 1',
     'ps4': 'PlayStation 4',
@@ -28,18 +27,76 @@ PLATFORM_MAP = {
     'ps1': 'PlayStation 1',
     'xb': 'Xbox One',
     'xbs': 'Xbox Series',
+    'xbx': 'Xbox Series',
     'pc': 'PC',
+    'xbox 360': 'Xbox 360',
+    'xbox one': 'Xbox One',
+    'xbox series': 'Xbox Series',
+    'xbox original': 'Xbox Original',
+    'xbox': 'Xbox Original',
+    'nintendo switch': 'Nintendo Switch 1',
+    'xo': 'Xbox One',
+    'xs': 'Xbox Series',
+    'xo/xs': 'Xbox One / Xbox Series',
+    'ps4/ps5': 'PlayStation 4 / PlayStation 5',
+    'nsw/nsw2': 'Nintendo Switch 1 / Nintendo Switch 2',
 }
 
-# Словарь известных изданий (то, что мы ожидаем увидеть)
-KNOWN_EDITIONS = {
-    'deluxe', 'ultimate', 'collector', 'collectors', 'limited', 'steelbook',
-    'signature', 'day one', 'gold', 'anniversary', 'special', 'premium',
-    'complete', 'definitive', 'remastered', 'goty', 'game of the year'
+PUBLISHER_MAP = {
+    'limited run games': 'Limited Run Games',
+    'strictly limited games': 'Strictly Limited Games',
+    'merge games': 'Merge Games',
+    'nis america': 'NIS America',
+    'idea factory': 'Idea Factory International',
+    'super rare games': 'Super Rare Games',
 }
 
-# Слова-маркеры, после которых может идти издание
-EDITION_MARKERS = {'edition', 'edition:', 'издание'}
+REGION_MAP = {
+    'ntsc u/c': 'US',
+    'ntsc': 'US',
+    'usa': 'US',
+    'us': 'US',
+    'pal': 'EU',
+    'eur': 'EU',
+    'eu': 'EU',
+    'e': 'EU',
+    'g': 'EU',
+    'j': 'JP',
+    'jpn': 'JP',
+    'jp': 'JP',
+    'asia': 'Asia',
+    'ru': 'RU',
+    'rus': 'RU',
+    'cn': 'CN',
+    'chn': 'CN',
+    'aus': 'AUS',
+    'sa': 'SA',
+}
+
+EDITION_MAP = {
+    'deluxe': 'Deluxe',
+    'ultimate': 'Ultimate',
+    "collector's": "Collector's",
+    'collectors': "Collector's",
+    'limited': 'Limited',
+    'steelbook': 'Steelbook',
+    'signature': 'Signature',
+    'day one': 'Day One',
+    'gold': 'Gold',
+    'anniversary': 'Anniversary',
+    'special': 'Special',
+    'premium': 'Premium',
+}
+
+
+def clean_text(text):
+    """Убирает лишние символы в конце и двойные пробелы."""
+    text = text.strip()
+    text = re.sub(r'[\-:,;]+$', '', text).strip()
+    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'\s*-?\s*Edition$', '', text, flags=re.IGNORECASE).strip()
+    return text
+
 
 def parse_name(full_name):
     result = {
@@ -47,23 +104,60 @@ def parse_name(full_name):
         'base_name': full_name,
         'platform': None,
         'edition': None,
+        'publisher': None,
+        'region': None,
     }
 
-    # 1. Тип товара (сначала смотрим в скобки, потом на первое слово)
-    lower_name = full_name.lower()
-    
-    # 1.1. Ищем в скобках (например, "(Steelbook Без Игры)")
-    platform_match = re.search(r'\(([^)]+)\)', full_name)
-    if platform_match:
-        text_in_brackets = platform_match.group(1).lower()
+    if "Новый товар" in full_name or full_name.startswith("Товар "):
+        result['type'] = 'unknown'
+        result['base_name'] = full_name
+        return result
+
+    brackets = re.findall(r'\(([^)]+)\)', full_name)
+    for bracket_text in brackets:
+        lower_bracket = bracket_text.lower()
+
         for key, val in TYPE_MAP.items():
-            if key in text_in_brackets:
+            if key in lower_bracket:
                 result['type'] = val
-                # Удаляем скобки с типом из названия
-                full_name = re.sub(r'\([^)]+\)', '', full_name).strip()
                 break
-    
-    # 1.2. Если в скобках не нашли, смотрим на первое слово
+
+        # Платформа (ищем точные совпадения, без дублей)
+        found_platforms = []
+        # Сначала проверяем составные (с "/")
+        for key, val in PLATFORM_MAP.items():
+            if '/' in key and key in lower_bracket:
+                if val not in found_platforms:
+                    found_platforms.append(val)
+        # Если составных нет — проверяем одиночные (с границами слова)
+        if not found_platforms:
+            for key, val in PLATFORM_MAP.items():
+                if '/' not in key and re.search(r'\b' + re.escape(key) + r'\b', lower_bracket):
+                    if val not in found_platforms:
+                        found_platforms.append(val)
+        if found_platforms:
+            result['platform'] = ' / '.join(found_platforms)
+
+
+        for key, val in PUBLISHER_MAP.items():
+            if key in lower_bracket:
+                result['publisher'] = val
+                break
+
+        for key, val in REGION_MAP.items():
+            if re.search(r'\b' + re.escape(key) + r'\b', lower_bracket):
+                result['region'] = val
+                break
+
+    full_name = re.sub(r'\([^)]+\)', '', full_name).strip()
+
+    lower_name = full_name.lower()
+    for key, val in PUBLISHER_MAP.items():
+        if key in lower_name:
+            result['publisher'] = val
+            full_name = re.sub(re.escape(key), '', full_name, flags=re.IGNORECASE).strip()
+            break
+
     if not result['type']:
         words = full_name.split()
         if words:
@@ -72,57 +166,31 @@ def parse_name(full_name):
                 result['type'] = TYPE_MAP[first_word]
                 full_name = ' '.join(words[1:]).strip()
 
-    # 2. Платформа (в скобках в конце) — только если тип ещё не определён
-    # (если мы уже удалили скобки с "Steelbook", то платформы там не было)
     if not result['platform']:
-        platform_match = re.search(r'\(([^)]+)\)', full_name)
-        if platform_match:
-            platform_code = platform_match.group(1).strip().lower()
-            for key, val in PLATFORM_MAP.items():
-                if key in platform_code:
-                    result['platform'] = val
-                    break
-            full_name = re.sub(r'\([^)]+\)', '', full_name).strip()
-
-    # 3. Издание (по слову "Edition" или известным словам)
-    words = full_name.split()
-    edition_found = False
-    
-    for i, word in enumerate(words):
-        if word.lower() in ('edition', 'edition:'):
-            # Берем слово перед "Edition"
-            if i > 0:
-                prev_word = words[i-1]
-                result['edition'] = f"{prev_word} Edition"
-                words.pop(i)  # удаляем Edition
-                words.pop(i-1)  # удаляем prev_word
-                edition_found = True
+        for key, val in PLATFORM_MAP.items():
+            pattern = r'\b' + re.escape(key) + r'\b'
+            if re.search(pattern, full_name, re.IGNORECASE):
+                result['platform'] = val
+                full_name = re.sub(pattern, '', full_name, flags=re.IGNORECASE).strip()
                 break
-    
-    if not edition_found:
-        # Если "Edition" нет, ищем известные слова в конце названия
-        if words:
-            last_word = words[-1].lower().strip('.,;:')
-            if last_word in {'deluxe', 'ultimate', 'collector', 'collectors', 'limited', 'steelbook', 'signature', 'gold', 'anniversary', 'special', 'premium'}:
-                result['edition'] = words[-1]
-                words.pop()
 
-    # 4. Базовое название (то, что осталось)
-    result['base_name'] = ' '.join(words).strip()
+    for key, val in EDITION_MAP.items():
+        if re.search(r'\b' + re.escape(key) + r'\b', full_name, re.IGNORECASE):
+            result['edition'] = val
+            full_name = re.sub(r'\b' + re.escape(key) + r'\b', '', full_name, flags=re.IGNORECASE).strip()
+            break
 
-    # 5. Определение сборника
     if not result['type']:
-        lower_name = result['base_name'].lower()
-        if any(word in lower_name for word in ['collection', 'trilogy', 'bundle', 'pack', '1+2', '2 in 1']):
+        lower_clean = full_name.lower()
+        if any(word in lower_clean for word in ['collection', 'trilogy', 'bundle', 'pack', '1+2', '2 in 1']):
             result['type'] = 'bundle'
         else:
             result['type'] = 'game'
-    elif result['type'] == 'game':
-        lower_name = result['base_name'].lower()
-        if any(word in lower_name for word in ['collection', 'trilogy', 'bundle', 'pack', '1+2', '2 in 1']):
-            result['type'] = 'bundle'
+
+    result['base_name'] = clean_text(full_name)
 
     return result
+
 
 def main():
     rows = conn.execute("SELECT id, name FROM product WHERE name IS NOT NULL").fetchall()
@@ -130,19 +198,32 @@ def main():
 
     for r in rows:
         parsed = parse_name(r['name'])
-        
+
+        region_id = None
+        if parsed['region']:
+            row = conn.execute(
+                "SELECT regionId FROM regions WHERE regionCode = ?",
+                (parsed['region'],)
+            ).fetchone()
+            if row:
+                region_id = row['regionId']
+
         conn.execute("""
-            UPDATE product 
+            UPDATE product
             SET baseGameName = ?,
                 product_type = ?,
                 platform = ?,
-                edition = ?
+                edition = ?,
+                publisher = ?,
+                regionId = ?
             WHERE id = ?
         """, (
             parsed['base_name'],
             parsed['type'],
             parsed['platform'],
             parsed['edition'],
+            parsed['publisher'],
+            region_id,
             r['id']
         ))
         updated += 1
@@ -150,15 +231,21 @@ def main():
     conn.commit()
     print(f"Обработано товаров: {updated}")
 
-   # Показываем случайные примеры (чтобы видеть разные товары)
     print("\nСлучайные примеры после разбора:")
-    samples = conn.execute("SELECT offer_id, name, baseGameName, product_type, platform, edition FROM product ORDER BY RANDOM() LIMIT 10").fetchall()
+    samples = conn.execute("""
+        SELECT offer_id, name, baseGameName, product_type, platform, edition, publisher, regionId
+        FROM product
+        ORDER BY RANDOM()
+        LIMIT 10
+    """).fetchall()
     for s in samples:
         print(f"  offer_id: {s['offer_id']}")
         print(f"    name: {s['name']}")
         print(f"    baseGameName: {s['baseGameName']}")
         print(f"    type: {s['product_type']}, platform: {s['platform']}, edition: {s['edition']}")
+        print(f"    publisher: {s['publisher']}, regionId: {s['regionId']}")
         print()
+
 
 if __name__ == "__main__":
     main()

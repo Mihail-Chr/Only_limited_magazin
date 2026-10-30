@@ -1,7 +1,7 @@
 """
-Загрузка отправлений FBS через /v4/posting/fbs/list.
-Запуск: python -m src.scripts.fetch_postings <store_code> <since> <to>
-Пример: python -m src.scripts.fetch_postings limited_games 2022-01-01 2022-12-31
+Загрузка истории отправлений (продаж) для магазина.
+Запуск: python -m src.scripts.fetch_postings <platform> <store_code> <since> <to>
+Пример: python -m src.scripts.fetch_postings ozon limited_games 2026-01-01 2026-12-31
 """
 import json
 import sys
@@ -12,26 +12,20 @@ from src.ozon_client import OzonClient
 
 BATCH_SIZE = 100
 
+
 def fetch_postings(client: OzonClient, since: str, to: str) -> list[dict]:
-    """Курсорная пагинация v4: has_next + cursor."""
-    all_postings: list[dict] = []
+    all_postings = []
     cursor = ""
     while True:
         payload = {
             "dir": "ASC",
-            "filter": {
-                "since": since,
-                "to": to,
-                "status": "",
-            },
+            "filter": {"since": since, "to": to, "status": ""},
             "limit": BATCH_SIZE,
             "cursor": cursor,
             "with": {
                 "analytics_data": False,
                 "barcodes": False,
                 "financial_data": False,
-                "product_exemplars": False,
-                "translit": False,
             },
         }
         data = client.post("/v4/posting/fbs/list", payload)
@@ -40,27 +34,26 @@ def fetch_postings(client: OzonClient, since: str, to: str) -> list[dict]:
         
         has_next = data.get("has_next", False)
         cursor = data.get("cursor", "")
-        
         if not has_next or not cursor:
             break
-            
     return all_postings
 
-def main() -> None:
-    if len(sys.argv) < 4:
-        print("Использование: python -m src.scripts.fetch_postings <store_code> <since> <to>")
-        print("Пример: python -m src.scripts.fetch_postings limited_games 2022-01-01 2022-12-31")
+
+def main():
+    if len(sys.argv) < 5:
+        print("Использование: python -m src.scripts.fetch_postings <platform> <store_code> <since> <to>")
+        print("Пример: python -m src.scripts.fetch_postings ozon limited_games 2026-01-01 2026-12-31")
         sys.exit(1)
     
-    store_code = sys.argv[1]
-    since_date = sys.argv[2]
-    to_date = sys.argv[3]
+    platform = sys.argv[1]
+    store_code = sys.argv[2]
+    since_date = sys.argv[3]
+    to_date = sys.argv[4]
     
-    # Формат OZON
     since = f"{since_date}T00:00:00Z"
     to = f"{to_date}T23:59:59Z"
     
-    store = get_store(store_code)
+    store = get_store(platform, store_code)
     client = OzonClient(store)
 
     print(f"Магазин: {store.name}")
@@ -69,20 +62,21 @@ def main() -> None:
     postings = fetch_postings(client, since, to)
     print(f"Получено отправлений: {len(postings)}")
 
-    # Сохраняем сырой JSON (для отладки)
+    # Сохраняем сырой JSON
     settings.data_api_raw.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    raw_path = settings.data_api_raw / f"{store_code}_postings_{since_date}_{stamp}.json"
+    raw_path = settings.data_api_raw / f"{platform}_{store_code}_postings_{since_date}_{stamp}.json"
     raw_path.write_text(json.dumps(postings, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Сохранено: {raw_path.name}")
 
     # Запись в БД
     with get_conn() as conn:
         store_row = conn.execute(
-            "SELECT id FROM store WHERE code=?", (store.code,)
+            "SELECT id FROM store WHERE code = ?", (store_code,)
         ).fetchone()
         if not store_row:
-            raise SystemExit(f"Магазин {store_code} не найден в БД")
+            print(f"Магазин {store_code} не найден в БД")
+            return
         store_id = store_row["id"]
 
         inserted = 0
@@ -124,20 +118,17 @@ def main() -> None:
                 "SELECT id FROM posting WHERE posting_number=?", (posting_number,)
             ).fetchone()["id"]
 
-            # Удаляем старые позиции, чтобы не дублировать
+            # Удаляем старые позиции
             conn.execute("DELETE FROM posting_item WHERE posting_id=?", (posting_id,))
 
             # Вставляем новые позиции
             for prod in p.get("products", []):
                 offer_id = prod.get("offer_id")
-                
-                # Ищем product_id по offer_id (если товар есть в нашей базе)
                 product_row = conn.execute(
                     "SELECT id FROM product WHERE offer_id=?", (offer_id,)
                 ).fetchone()
                 product_id = product_row["id"] if product_row else None
 
-                # Безопасный разбор цены (OZON может отдавать dict или число)
                 raw_price = prod.get("price", 0)
                 if isinstance(raw_price, dict):
                     price_val = float(raw_price.get("amount", 0) or 0)
@@ -149,17 +140,7 @@ def main() -> None:
                         price_val = 0.0
                     currency_val = prod.get("currency_code", "RUB")
 
-                # Искусственная себестоимость (30% от цены)
                 cost_at_sale = round(price_val * 0.3, 2)
-
-                # --- ОБНОВЛЯЕМ НАЗВАНИЕ ТОВАРА В PRODUCT, ЕСЛИ ОНО ЗАГЛУШКА ---
-                product_name = prod.get("name", "")
-                if product_id and product_name:
-                    current_prod = conn.execute("SELECT name FROM product WHERE id = ?", (product_id,)).fetchone()
-                    if current_prod and current_prod["name"] == "Новый товар (ожидает заполнения)":
-                        conn.execute("UPDATE product SET name = ?, baseGameName = ? WHERE id = ?", (product_name, product_name, product_id))
-                # -----------------------------------------------------------------
-
 
                 conn.execute(
                     """INSERT INTO posting_item(
@@ -182,21 +163,6 @@ def main() -> None:
         conn.commit()
         print(f"Записано отправлений в БД: {inserted}")
 
-    # Сводка: сколько единиц товара «в пути»
-    with get_conn() as conn:
-        rows = conn.execute(
-            """SELECT pi.offer_id, SUM(pi.quantity) AS qty
-               FROM posting_item pi
-               JOIN posting p ON p.id = pi.posting_id
-               WHERE p.status NOT IN ('delivered', 'cancelled')
-               GROUP BY pi.offer_id
-               ORDER BY qty DESC
-               LIMIT 20"""
-        ).fetchall()
-
-    print("\nТоп-20 товаров «в пути» (не доставлены и не отменены):")
-    for r in rows:
-        print(f"  {r['offer_id']}: {r['qty']} шт.")
 
 if __name__ == "__main__":
     main()

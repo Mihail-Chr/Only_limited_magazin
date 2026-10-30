@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS product (
     cost_price_real     REAL,                   -- реальная себестоимость
     avg_market_price    REAL,                   -- средняя цена на рынке
     avg_market_price_updated_at TEXT,
+    regionId            INTEGER REFERENCES regions(regionId),
     is_active           INTEGER NOT NULL DEFAULT 1, -- <--- ВОТ ОНО, ТО САМОЕ ПОЛЕ
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
