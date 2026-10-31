@@ -266,3 +266,101 @@
 - Не деплоить, пока не работает локально.
 - Всегда иметь актуальную схему БД в `schema.sql`, а не «дособирать» её через `ALTER TABLE` вручную.
 - Тестировать negative testing (пустая база, неверный файл, отсутствие таблиц).
+
+## 2026-10-30 — Ветка под рефакторинг парсера, тест-кейсы «сначала желаемое»
+
+**Решение:** переходим на TDD-подход (сначала тест-кейс — что хотим получить, потом код парсера под него). Причина: парсер сейчас хардкодит словари и не покрывает media/хвост описания/steelbook — при правках легко сломать уже работающее.
+
+**Сделано:**
+- Закоммичено текущее состояние в `main` (коммит `89d862f`, 11 файлов).
+- Создана ветка `test/parser-target-behavior` — вся работа по парсеру идёт там, `main` не трогаем.
+- Удалены временные скрипты из корня (`add_region_id.py`, `check_region.py`) — их роль выполнили `schema.sql` и диагностика через `PRAGMA table_info`.
+
+**План в ветке:**
+1. `src/parsers/` — вынести чистую логику `parse_name` (без `sqlite3`, без `settings`).
+2. `src/parsers/tests/cases.py` — таблица кейсов «вход → целевое ожидание».
+3. `src/parsers/tests/runner.py` — прогон с `✅`/`❌` и `--random N`.
+4. Прогон на текущем парсере — фиксируем «красное».
+5. Патч парсера по пунктам: media_type, хвост описания, steelbook/edition, словари из БД, все платформы.
+6. Когда зелёное — merge в `main`, удаление ветки.
+
+**Зафиксированные решения (актуальные для парсера):**
+- Steelbook: тип товара, если без «Edition»; издание, если с «Edition».
+- Media (physical/digital/cartridge/disc/code in a box) → `media_type`, вырезать из `baseGameName`.
+- Хвост описания (`— ...`): разбирать, извлекать информацию о товаре, остаток отбрасывать.
+- Платформы: собирать все — и в скобках, и вне скобок (убрать асимметрию `break`).
+- Словари (`editionTypes`, `publishers`, `regions`, `platforms`, `typeGoods`) — читать из БД, хардкод только fallback.
+- Ревизии платформ (Slim, Pro, OLED, Lite, S, X, E, All-Digital) — только справочник (новая колонка `revision`), парсер их не различает на этом этапе.
+- Разделитель платформ — не гарантируем (что даёт площадка). Нормализация в множество (`platform_set`) — на этапе `merge_duplicates`, не в парсере.
+- Регионы: одиночные `'e'`, `'g'` — пока не убираем, обсудить отдельно.
+- `"Товар <offer_id>"` — удалять (не парсить как unknown).
+
+**Отложено:**
+- `merge_duplicates.py` — не начат.
+- `check_duplicates_analysis.py` — грубый (группирует по строке `platform`), после парсера.
+- Переименование карточек в OZON через API — чтобы в будущем не парсить.
+- `platform_set` — на этап склейки.
+
+## 2026-10-30 — Парсер: рефакторинг под TDD, 24/24 тест-кейсов
+
+**Ветка:** `test/parser-target-behavior` (от коммита `89d862f` в `main`).
+
+**Что сделано:**
+- Вынесены тест-кейсы в отдельный модуль: `src/parsers/tests/cases.py` + `runner.py` (прогон + `--random N`).
+- Переписан `parse_name` в `src/scripts/parse_names.py`:
+  - словари читаются из БД (`typeGoods`, `platforms`, `editionTypes`, `regions`, `publishers`) с хардкод-fallback;
+  - `media_type` (physical/digital/code_in_a_box/cartridge/disc/download_code) — новое поле, вырезается из `base_name`;
+  - edition по якорю `Edition`: 1–3 слова до, проверка в словаре, порядок 3→2→1 (длинное издание приоритетнее);
+  - steelbook: тип, если без `Edition`; издание, если с `Edition`;
+  - платформы: все (и в скобках, и вне), без дублей, сортировка по алфавиту;
+  - хвост описания (`— ...`) отрезается до разбора;
+  - заглушки → `type='stub'`;
+  - `Видеоигра` срезается (через блок 7, после фикса ложного срабатывания типа в скобках).
+- Добавлены издания: `Classic`, `Definitive`, `Complete`, `Enhanced`, `Extended`, `Exclusive`, `Slip Case Gold`.
+- Добавлены портативные платформы (хардкод, временно): `nds`, `ds`, `3ds`, `gba`, `gbc`, `gb`.
+- Добавлены полные названия регионов: `japan`, `europe`, `russia`, `china`, `australia`.
+- Добавлены издатели (хардкод-fallback): `Special Reserve Games`, `Eastasiasoft`, `Play-Asia`, `Red Art Games`, `Pix'n Love`, `Signature Edition Games`, `Fangamer`, `iam8bit`.
+
+**Тесты:** 24 / 24 зелёных (было 0 / 17 на старте).
+
+**Зафиксированные допущения (цена ошибки):**
+- Уникальные издания (`Deathinitive`, `Zeno`, `Lumiere`, `Crimson Knight`, `Blackwater`, `Possessed`, `Stellar`, `Survivor`, `Behemoth`, `Ancestral`, `Nouveau`, `Day Ichi`, `Craft`, `Artist's`, `Bel`) — **не добавляем** в `EDITION_MAP`. Остаются в `base_name`. Для склейки это ок: одинаковые `base_name` склеиваются. Ложное вырезание части названия — дороже.
+- `Edition` **оставляем** в `base_name`, если издание не распознано (уникальное). Пользователь видит и решает: добавить в словарь или оставить. `clean_text` больше не вырезает `Edition$`.
+- `Remastered`, `Remake`, `GOTY`, `Game of the Year`, `K.O.`, `First`, `Legendary` — **не добавляем** (могут быть частью названия). `Remastered Edition` — можно как фразу, но пока не добавляли.
+- `Capcom` в `SNK vs. Capcom` — **не** издатель, а часть названия. Издатель ищется **только в скобках** (и в конце — обсудить отдельно).
+- Регион ищется **только в скобках** (не угадываем вне скобок).
+- `platform_set` (множество платформ) — **не делаем** в парсере, отложено на `merge_duplicates`.
+- Разделитель платформ — «как даёт площадка», не гарантируем.
+
+**Отложено:**
+- `merge_duplicates.py` — не начат.
+- `check_duplicates_analysis.py` — грубый (группирует по строке `platform`), после парсера.
+- `check_info_list_coverage.py` — диагностика: сколько `name` приходит из `info/list`.
+- Pipeline: порядок шагов (`clean_stubs` до `parse_names`), единый маркер заглушки (`stub`), `info/list` до создания заглушки.
+- `seed_reference_data.py`: добавить портативные платформы, издателей, `KR` в регионы — тогда убрать хардкод-fallback.
+- Переименование карточек в OZON через API.
+
+**Уроки:**
+- TDD работает: «сначала тест (желаемое) — потом код». Красное → патч → зелёное.
+- Тест-кейсы — отдельный модуль (`src/parsers/tests/`), чтобы использовать и для других площадок (WB, YM).
+- Диагностика перед патчем (один `print`) экономит время: подтвердили, что `Collector's Edition` удаляется вместе со скобкой.
+- `HISTORY.md` + `CONTEXT.md` — восстанавливают контекст за минуту.
+
+## 2026-10-31 — Парсер: steelbook premium, vengeance, xbox series x/s, правила дублей
+
+**Сделано:**
+- `EDITION_MAP` += `steelbook premium`, `vengeance`, `france exclusive`, `картонный бокс`, `ultimate 30th anniversary`, `essence of art`, `mirror`, `collector's k.o.`, `ultimate steelbook`.
+- `PLATFORM_MAP`: `xbox series x` → `Xbox Series X`, `xbox series s` → `Xbox Series S`, `xsx` → `Xbox Series X`, `xss` → `Xbox Series S`.
+- `extract_platforms`: `matched_keys` — чтобы `'xbox series'` не матчился внутри `'xbox series x'`.
+- `export_duplicates_xlsx.py`: правила — `BASE_NAME` → `PLATFORM` → `EDITION` → `REGION_ID` → `MEDIA_TYPE` → `PUBLISHER` (все точные, NULL≠значение, кроме PLATFORM). Попарно, `PAIR_ID`, `PRICE`/`PRICE_SOURCE`.
+- `parse_names` **обязательно** перезапускать после правок `PLATFORM_MAP`/`EDITION_MAP` — иначе в БД старое значение.
+
+**Тесты:** 27/27.
+
+**Результат:** 58 → 39 пар (ложные ушли: регионы, media, publisher, edition, Series X).
+
+**Отложено:**
+- `merge_duplicates.py` (правила готовы).
+- UI-проверка дублей при вводе.
+- Тест-кейсы на новые фразы.
+- `seed_reference_data.py`: `Xbox Series X/S`, портативные, `KR`.
