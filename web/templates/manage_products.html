@@ -9,26 +9,65 @@
 
 <!-- Поиск -->
 <div style="margin-bottom: 15px;">
-    <input type="text" id="search-input" placeholder="Поиск по названию..." style="width: 100%; max-width: 400px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px;">
+    <input type="text" id="search-input" placeholder="Поиск по названию или артикулу..." style="width: 100%; max-width: 300px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px;">
 </div>
 
 <table id="manage-table">
     <thead>
         <tr>
             <th>Артикул</th>
-            <th onclick="sortTable(1)" style="cursor: pointer; user-select: none;">Название <span id="sort-name-icon">↕</span></th>
-            <th onclick="sortTable(2)" style="cursor: pointer; user-select: none;">Платформа <span id="sort-platform-icon">↕</span></th>
+            <th onclick="sortTable(1)" style="cursor: pointer;">Название <span id="sort-name-icon">↕</span></th>
+            <th>
+                Платформа
+                <select id="filter-platform" onchange="applyFilters()" style="display: block; margin-top: 5px; font-size: 12px; padding: 2px; border-radius: 4px; width: 100%;">
+                    <option value="">Все платформы</option>
+                    {% for p in platforms %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+                </select>
+            </th>
+            <th>
+                Издание
+                <select id="filter-edition" onchange="applyFilters()" style="display: block; margin-top: 5px; font-size: 12px; padding: 2px; border-radius: 4px; width: 100%;">
+                    <option value="">Все издания</option>
+                    {% for e in editions %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
+                </select>
+            </th>
+            <th>
+                Регион
+                <select id="filter-region" onchange="applyFilters()" style="display: block; margin-top: 5px; font-size: 12px; padding: 2px; border-radius: 4px; width: 100%;">
+                    <option value="">Все регионы</option>
+                    {% for r in regions %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+                </select>
+            </th>
+            <th>
+                Издатель
+                <select id="filter-publisher" onchange="applyFilters()" style="display: block; margin-top: 5px; font-size: 12px; padding: 2px; border-radius: 4px; width: 100%;">
+                    <option value="">Все издатели</option>
+                    {% for pub in publishers %}<option value="{{ pub }}">{{ pub }}</option>{% endfor %}
+                </select>
+            </th>
+            <th>Цена уч. (RUB)</th>
+            <th>Цена OZON</th>
+            <th>Остаток</th>
             <th>Действие</th>
         </tr>
     </thead>
     <tbody>
         {% for r in rows %}
-        <tr>
+        <tr data-platform="{{ r['platform'] or '' }}" data-edition="{{ r['edition'] or '' }}" data-region="{{ r['region'] or '' }}" data-publisher="{{ r['publisher'] or '' }}">
             <td>{{ r["offer_id"] }}</td>
             <td>{{ r["name"] }}</td>
             <td>{{ r["platform"] or "—" }}</td>
+            <td>{{ r["edition"] or "—" }}</td>
+            <td>{{ r["region"] or "—" }}</td>
+            <td>{{ r["publisher"] or "—" }}</td>
+            <td class="num">{{ "%.2f"|format(r["cost_price"] or 0) }}</td>
+            <td class="num">{{ "%.2f"|format(r["ozon_price"] or 0) }}</td>
             <td>
-                <a href="/keeper/edit_product/{{ r['id'] }}" class="btn-primary" style="display: inline-block; padding: 8px 16px; text-decoration: none; font-size: 14px;">Редактировать</a>
+                <input type="number" class="qty-input" data-id="{{ r['id'] }}" value="{{ r['quantity'] }}" min="0" style="width:60px; padding:4px; border-radius: 4px; border: 1px solid #ccc;">
+            </td>
+            <td>
+                <a href="/keeper/edit_product/{{ r['id'] }}" class="btn-primary" style="display: inline-block; padding: 4px 8px; text-decoration: none; font-size: 14px; margin-right: 5px; margin-bottom: 5px;">Ред.</a>
+                <a href="/keeper/copy_product/{{ r['id'] }}" class="btn-primary" style="display: inline-block; padding: 4px 8px; text-decoration: none; font-size: 14px; background: #2980b9;">Копия</a>
             </td>
         </tr>
         {% endfor %}
@@ -36,59 +75,71 @@
 </table>
 
 <script>
-    // --- Поиск по названию ---
-    const searchInput = document.getElementById('search-input');
-    searchInput.addEventListener('input', function() {
-        const query = this.value.toLowerCase().trim();
+    function applyFilters() {
+        const q = document.getElementById('search-input').value.toLowerCase().trim();
+        const p = document.getElementById('filter-platform').value;
+        const e = document.getElementById('filter-edition').value;
+        const r = document.getElementById('filter-region').value;
+        const pub = document.getElementById('filter-publisher').value;
+
         document.querySelectorAll('#manage-table tbody tr').forEach(row => {
             const name = row.querySelector('td:nth-child(2)').textContent.toLowerCase();
-            if (name.includes(query)) {
+            const offerId = row.querySelector('td:nth-child(1)').textContent.toLowerCase();
+            const rowP = row.dataset.platform;
+            const rowE = row.dataset.edition;
+            const rowR = row.dataset.region;
+            const rowPub = row.dataset.publisher;
+
+            const matchesSearch = name.includes(q) || offerId.includes(q);
+            const matchesPlatform = !p || rowP === p;
+            const matchesEdition = !e || rowE === e;
+            const matchesRegion = !r || rowR === r;
+            const matchesPublisher = !pub || rowPub === pub;
+
+            if (matchesSearch && matchesPlatform && matchesEdition && matchesRegion && matchesPublisher) {
                 row.style.display = '';
             } else {
                 row.style.display = 'none';
             }
         });
+    }
+    document.getElementById('search-input').addEventListener('input', applyFilters);
+
+    // Инлайн редактирование остатка
+    document.querySelectorAll('.qty-input').forEach(input => {
+        input.addEventListener('blur', async function() {
+            const productId = this.dataset.id;
+            const quantity = parseInt(this.value) || 0;
+            try {
+                const resp = await fetch('/keeper/update_stock_inline', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ product_id: productId, quantity: quantity })
+                });
+                if (resp.ok) {
+                    this.style.border = '2px solid #27ae60';
+                    setTimeout(() => this.style.border = '1px solid #ccc', 1000);
+                } else {
+                    this.style.border = '2px solid #e74c3c';
+                }
+            } catch (e) {
+                this.style.border = '2px solid #e74c3c';
+            }
+        });
     });
 
-    // --- Сортировка ---
-    let sortDirection = {};
-    let secondarySortColumn = null;
-
-    function sortTable(columnIndex) {
-        const table = document.getElementById('manage-table');
-        const tbody = table.querySelector('tbody');
+    // Сортировка
+    let sortDirection = 1;
+    function sortTable(colIdx) {
+        const tbody = document.querySelector('#manage-table tbody');
         const rows = Array.from(tbody.querySelectorAll('tr'));
-        
-        if (!sortDirection[columnIndex]) {
-            sortDirection[columnIndex] = 1;
-        } else {
-            sortDirection[columnIndex] *= -1;
-        }
-        const direction = sortDirection[columnIndex];
-        
-        if (columnIndex === 2) secondarySortColumn = 1;
-        else if (columnIndex === 1) secondarySortColumn = 2;
-        else secondarySortColumn = null;
-        
+        sortDirection *= -1;
         rows.sort((a, b) => {
-            const getText = (row, idx) => row.querySelector(`td:nth-child(${idx + 1})`).textContent.trim();
-            const compare = (valA, valB) => {
-                return valA.localeCompare(valB, 'ru') * direction;
-            };
-            const result = compare(getText(a, columnIndex), getText(b, columnIndex));
-            if (result !== 0) return result;
-            if (secondarySortColumn !== null) {
-                return compare(getText(a, secondarySortColumn), getText(b, secondarySortColumn));
-            }
-            return 0;
+            const valA = a.querySelector(`td:nth-child(${colIdx + 1})`).textContent.trim();
+            const valB = b.querySelector(`td:nth-child(${colIdx + 1})`).textContent.trim();
+            return valA.localeCompare(valB, 'ru') * sortDirection;
         });
-        
         rows.forEach(row => tbody.appendChild(row));
-        
-        document.getElementById('sort-name-icon').textContent = '↕';
-        document.getElementById('sort-platform-icon').textContent = '↕';
-        if (columnIndex === 1) document.getElementById('sort-name-icon').textContent = direction === 1 ? '↑' : '↓';
-        if (columnIndex === 2) document.getElementById('sort-platform-icon').textContent = direction === 1 ? '↑' : '↓';
+        document.getElementById('sort-name-icon').textContent = sortDirection === 1 ? '↑' : '↓';
     }
 </script>
 {% endblock %}

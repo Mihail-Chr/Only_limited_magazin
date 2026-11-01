@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}История ручных продаж{% endblock %}
+{% block content %}
+<h2>История ручных продаж</h2>
+<div style="margin-bottom: 20px;">
+    <a href="/seller" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 10px 20px;">← Назад</a>
+</div>
+
+<!-- Фильтр по дате -->
+<div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; max-width: 600px;">
+    <label style="font-weight: bold;">С:</label>
+    <input type="date" id="date-from" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+    
+    <label style="font-weight: bold;">По:</label>
+    <input type="date" id="date-to" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+    
+    <button type="button" id="reset-filter" style="padding: 8px 16px; background: #95a5a6; color: white; border: none; border-radius: 4px; cursor: pointer;">Сбросить</button>
+</div>
+
+<table id="history-table">
+    <thead>
+        <tr>
+            <th>№</th>
+            <th onclick="sortTable(1)" style="cursor: pointer; user-select: none;">Дата <span id="sort-date-icon">↕</span></th>
+            <th>Товар</th>
+            <th>Кол-во</th>
+            <th>Цена</th>
+            <th>Покупатель</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in rows %}
+        <tr data-date="{{ r.created_at }}">
+            <td>{{ r.posting_number }}</td>
+            <td>{{ r.created_at }}</td>
+            <td>{{ r.product_name }}</td>
+            <td class="num">{{ r.quantity }}</td>
+            <td class="num">{{ "%.2f"|format(r.price) }} ₽</td>
+            <td>{{ r.buyer_nickname or "Физлицо" }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<script>
+    const fromInput = document.getElementById('date-from');
+    const toInput = document.getElementById('date-to');
+    const resetBtn = document.getElementById('reset-filter');
+    const rows = document.querySelectorAll('#history-table tbody tr');
+
+    function applyDateFilter() {
+        const fromVal = fromInput.value; // YYYY-MM-DD
+        const toVal = toInput.value;
+
+        rows.forEach(row => {
+            // Дата в таблице хранится как "YYYY-MM-DD HH:MM:SS" или "YYYY-MM-DD"
+            const rowDate = row.dataset.date.split(' ')[0]; // берем только дату
+
+            let show = true;
+            if (fromVal && rowDate < fromVal) show = false;
+            if (toVal && rowDate > toVal) show = false;
+
+            if (show) row.style.display = '';
+            else row.style.display = 'none';
+        });
+    }
+
+    fromInput.addEventListener('change', applyDateFilter);
+    toInput.addEventListener('change', applyDateFilter);
+
+    resetBtn.addEventListener('click', function() {
+        fromInput.value = '';
+        toInput.value = '';
+        applyDateFilter();
+    });
+
+    // Сортировка по дате
+    let sortDirection = 1;
+    function sortTable(colIdx) {
+        const tbody = document.querySelector('#history-table tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        sortDirection *= -1;
+        
+        rows.sort((a, b) => {
+            const valA = a.querySelector(`td:nth-child(${colIdx + 1})`).textContent.trim();
+            const valB = b.querySelector(`td:nth-child(${colIdx + 1})`).textContent.trim();
+            return valA.localeCompare(valB) * sortDirection;
+        });
+        
+        rows.forEach(row => tbody.appendChild(row));
+        document.getElementById('sort-date-icon').textContent = sortDirection === 1 ? '↑' : '↓';
+    }
+</script>
+{% endblock %}

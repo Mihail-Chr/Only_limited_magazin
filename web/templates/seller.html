@@ -3,37 +3,79 @@
 {% block content %}
 <h2>Экран продавца</h2>
 
-<a href="/" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #2c3e50; color: white; font-weight: bold; margin-bottom: 20px;">← На главную</a>
+<div style="margin-bottom: 20px;">
+    <a href="/" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #2c3e50; color: white; font-weight: bold;">← На главную</a>
+    <a href="/seller/manual_sale" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #27ae60; color: white; font-weight: bold; margin-left: 8px;">Ручная продажа</a>
+    <a href="/seller/manual_sales" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #2980b9; color: white; font-weight: bold; margin-left: 8px;">История ручных продаж</a>
+</div>
 
-<p>Товары с ценой. Сортировка по чистой марже (по возрастанию).</p>
+<div style="margin-bottom: 15px;">
+    <input type="text" id="search-input" placeholder="Поиск по названию или артикулу..." style="width: 100%; max-width: 300px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px;">
+</div>
 
-<table>
+<table id="seller-table">
     <thead>
         <tr>
             <th>Артикул</th>
-            <th>Название</th>
-            <th>Цена</th>
-            <th>Комис.</th>
-            <th>На руки</th>
-            <th>Себест.</th>
-            <th>Чистая маржа %</th>
+            <th onclick="sortTable(1)" style="cursor: pointer;">Наименование <span id="sort-name-icon">↕</span></th>
+            <th>
+                Платформа
+                <!-- Фильтр внутри заголовка -->
+                <select id="platform-filter" onchange="applyFilters()" style="display: block; margin-top: 5px; font-size: 12px; padding: 2px; border-radius: 4px; width: 100%; max-width: 200px;">
+                    <option value="">Все платформы</option>
+                    {% for p in platforms %}
+                    <option value="{{ p }}">{{ p }}</option>
+                    {% endfor %}
+                </select>
+            </th>
+            <th>Цена OZON <br><small style="font-weight:normal;color:#7f8c8d;">(или посл. продажа)</small></th>
+            <th>Количество</th>
         </tr>
     </thead>
     <tbody>
         {% for r in rows %}
-        <tr>
+        <tr data-platform="{{ r['platform'] or '' }}">
             <td>{{ r["offer_id"] }}</td>
-            <td>{{ r["name"][:50] }}{% if r["name"]|length > 50 %}…{% endif %}</td>
-            <td class="num">{{ "%.2f"|format(r["price"]) }}</td>
-            <td class="num">{{ "%.0f"|format((r["commission_rate"] or 0.45) * 100) }}%</td>
-            <td class="num">{{ "%.2f"|format(r["payout_amount"] or 0) }}</td>
-            <td class="num">{{ "%.2f"|format(r["cost_price_synthetic"] or 0) }}</td>
-            <td class="num {% if r['margin_net_pct'] is not none and r['margin_net_pct'] < 20 %}neg{% endif %}">
-                {{ "%.1f"|format(r["margin_net_pct"]) if r["margin_net_pct"] is not none else "—" }}
-            </td>
+            <td>{{ r["name"] }}</td>
+            <td>{{ r["platform"] or "—" }}</td>
+            <td class="num">{{ "%.2f"|format(r["final_price"] or 0) }} ₽</td>
+            <td class="num">{{ r["quantity"] }}</td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
-<p class="hint">Показано {{ rows|length }} товаров (лимит 100).</p>
+
+<script>
+    function applyFilters() {
+        const q = document.getElementById('search-input').value.toLowerCase().trim();
+        const p = document.getElementById('platform-filter').value;
+
+        document.querySelectorAll('#seller-table tbody tr').forEach(row => {
+            const name = row.querySelector('td:nth-child(2)').textContent.toLowerCase();
+            const offerId = row.querySelector('td:nth-child(1)').textContent.toLowerCase();
+            const rowP = row.dataset.platform;
+
+            if ((name.includes(q) || offerId.includes(q)) && (!p || rowP === p)) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    }
+    document.getElementById('search-input').addEventListener('input', applyFilters);
+
+    let sortDirection = 1;
+    function sortTable(colIdx) {
+        const tbody = document.querySelector('#seller-table tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        sortDirection *= -1;
+        rows.sort((a, b) => {
+            const valA = a.querySelector(`td:nth-child(${colIdx + 1})`).textContent.trim();
+            const valB = b.querySelector(`td:nth-child(${colIdx + 1})`).textContent.trim();
+            return valA.localeCompare(valB, 'ru') * sortDirection;
+        });
+        rows.forEach(row => tbody.appendChild(row));
+        document.getElementById('sort-name-icon').textContent = sortDirection === 1 ? '↑' : '↓';
+    }
+</script>
 {% endblock %}

@@ -6,14 +6,16 @@
     <a href="/keeper" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #2c3e50; color: white; font-weight: bold; margin-bottom: 20px;">← Вернуться в меню</a>
 </div>
 
-<!-- Поиск -->
-<div style="margin-bottom: 15px;">
+<!-- Поиск и фильтр -->
+<div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
     <input type="text" id="search-input" placeholder="Поиск по названию или артикулу..." style="width: 100%; max-width: 400px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px;">
-</div>
-
-<div id="report-box" style="display:none;" class="flash ok" style="position: relative;">
-    <div id="report-content"></div>
-    <button onclick="document.getElementById('report-box').style.display='none'" style="position: absolute; top: 10px; right: 10px; background: none; border: none; color: #155724; font-size: 20px; cursor: pointer;">&times;</button>
+    
+    <select id="platform-filter" onchange="applyFilters()" style="padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px;">
+        <option value="">Все платформы</option>
+        {% for p in platforms %}
+        <option value="{{ p }}">{{ p }}</option>
+        {% endfor %}
+    </select>
 </div>
 
 <table id="stock-table">
@@ -31,7 +33,7 @@
     </thead>
     <tbody>
         {% for r in rows %}
-        <tr data-offer-id="{{ r['offer_id'] }}" data-original="{{ r['physical_qty'] }}">
+        <tr data-offer-id="{{ r['offer_id'] }}" data-original="{{ r['physical_qty'] }}" data-platform="{{ r['platform'] or '' }}">
             <td>{{ r["offer_id"] }}</td>
             <td>{{ r["name"] }}</td>
             <td>{{ r["platform"] or "—" }}</td>
@@ -43,28 +45,40 @@
     </tbody>
 </table>
 
-<!-- Плавающая панель сохранения -->
-<div id="floating-panel">
-    <span id="change-count">0 изменений</span>
-    <button id="save-all-btn" disabled>💾 Сохранить все</button>
-</div>
-
-<style>
-    /* Стили (оставляем как были) */
-    #floating-panel { ... } /* (здесь твои старые стили для панели, они не меняются) */
-</style>
-
 <script>
+    // --- Универсальная функция фильтрации (Поиск + Платформа) ---
+    function applyFilters() {
+        const query = document.getElementById('search-input').value.toLowerCase().trim();
+        const platformFilter = document.getElementById('platform-filter').value;
+
+        document.querySelectorAll('#stock-table tbody tr').forEach(row => {
+            const nameCell = row.querySelector('td:nth-child(2)').textContent.toLowerCase();
+            const offerId = row.dataset.offerId.toLowerCase();
+            const platform = row.dataset.platform;
+
+            const matchesSearch = nameCell.includes(query) || offerId.includes(query);
+            const matchesPlatform = !platformFilter || platform === platformFilter;
+
+            if (matchesSearch && matchesPlatform) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    }
+
+    // Привязываем поиск к универсальной функции
+    document.getElementById('search-input').addEventListener('input', applyFilters);
+
     // --- Сортировка по столбцам ---
     let sortDirection = {};
-    let secondarySortColumn = null; // Какая колонка сортируется вторично
+    let secondarySortColumn = null;
 
     function sortTable(columnIndex) {
         const table = document.getElementById('stock-table');
         const tbody = table.querySelector('tbody');
         const rows = Array.from(tbody.querySelectorAll('tr'));
         
-        // Определяем направление для основной колонки
         if (!sortDirection[columnIndex]) {
             sortDirection[columnIndex] = 1;
         } else {
@@ -72,23 +86,12 @@
         }
         const direction = sortDirection[columnIndex];
         
-        // Определяем, какая колонка будет вторичной (если выбрана не платформа, то вторичная — платформа; и наоборот)
-        if (columnIndex === 2) {
-            secondarySortColumn = 1; // Платформа, затем Название
-        } else if (columnIndex === 1) {
-            secondarySortColumn = 2; // Название, затем Платформа
-        } else {
-            secondarySortColumn = null;
-        }
+        if (columnIndex === 2) secondarySortColumn = 1;
+        else if (columnIndex === 1) secondarySortColumn = 2;
+        else secondarySortColumn = null;
         
-        // Сортируем строки
         rows.sort((a, b) => {
-            // Функция для получения текста ячейки
-            const getCellText = (row, index) => {
-                return row.querySelector(`td:nth-child(${index + 1})`).textContent.trim();
-            };
-            
-            // Сравнение
+            const getCellText = (row, index) => row.querySelector(`td:nth-child(${index + 1})`).textContent.trim();
             const compare = (valA, valB) => {
                 const numA = parseFloat(valA);
                 const numB = parseFloat(valB);
@@ -97,49 +100,20 @@
                 }
                 return valA.localeCompare(valB, 'ru') * direction;
             };
-            
-            // Сначала сравниваем по основной колонке
             const result = compare(getCellText(a, columnIndex), getCellText(b, columnIndex));
             if (result !== 0) return result;
-            
-            // Если равно и есть вторичная колонка — сравниваем по ней
             if (secondarySortColumn !== null) {
                 return compare(getCellText(a, secondarySortColumn), getCellText(b, secondarySortColumn));
             }
-            
             return 0;
         });
         
-        // Переставляем строки в таблице
         rows.forEach(row => tbody.appendChild(row));
         
-        // Обновляем стрелочки
         document.getElementById('sort-name-icon').textContent = '↕';
         document.getElementById('sort-platform-icon').textContent = '↕';
-        
-        if (columnIndex === 1) {
-            document.getElementById('sort-name-icon').textContent = direction === 1 ? '↑' : '↓';
-        } else if (columnIndex === 2) {
-            document.getElementById('sort-platform-icon').textContent = direction === 1 ? '↑' : '↓';
-        }
+        if (columnIndex === 1) document.getElementById('sort-name-icon').textContent = direction === 1 ? '↑' : '↓';
+        if (columnIndex === 2) document.getElementById('sort-platform-icon').textContent = direction === 1 ? '↑' : '↓';
     }
-
-    // --- Поиск только по названию ---
-    const searchInput = document.getElementById('search-input');
-    searchInput.addEventListener('input', function() {
-        const query = this.value.toLowerCase().trim();
-        
-        document.querySelectorAll('#stock-table tbody tr').forEach(row => {
-            // Берем только название (вторая колонка)
-            const nameCell = row.querySelector('td:nth-child(2)');
-            const name = nameCell ? nameCell.textContent.toLowerCase() : '';
-            
-            if (name.includes(query)) {
-                row.style.display = '';
-            } else {
-                row.style.display = 'none';
-            }
-        });
-    });
 </script>
 {% endblock %}

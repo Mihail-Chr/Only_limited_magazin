@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}Редактировать товар{% endblock %}
+{% block content %}
+<h2>Редактирование товара: {{ product['baseGameName'] }}</h2>
+<div style="margin-bottom: 15px;">
+    <a href="/keeper/manage_products" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 10px 20px;">← Назад</a>
+</div>
+
+<form id="edit-product-form" method="post" action="/keeper/edit_product/{{ product['id'] }}" autocomplete="off">
+    <div class="form-group">
+        <label>Тип товара:</label>
+        <select name="typeGoodId" id="typeGoodId" required>
+            {% for t in typeGoods %}
+            <option value="{{ t['typeGoodName'] }}" {% if t['typeGoodName'] == product['product_type'] %}selected{% endif %}>{{ t['typeGoodName'] }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Платформа:</label>
+        <div style="display:flex; gap:6px;">
+            <select name="platformName" id="platformName" required style="flex: 2;" onchange="updateVersions()">
+                {% set ns = namespace(seen=[]) %}
+                {% set current_platform = product['platform'] or '' %}
+                {% for p in platforms %}
+                    {% if p['platformName'] not in ns.seen %}
+                        <option value="{{ p['platformName'] }}" {% if current_platform.startswith(p['platformName']) %}selected{% endif %}>{{ p['platformName'] }}</option>
+                        {% set ns.seen = ns.seen + [p['platformName']] %}
+                    {% endif %}
+                {% endfor %}
+            </select>
+            
+            <select name="platformVersion" id="platformVersion" required style="flex: 1;">
+                <option value="">-- Версия --</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Название игры:</label>
+        <input type="text" name="gameName" id="gameName" value="{{ product['baseGameName'] or '' }}" list="game-names" required autocomplete="new-password">
+        <datalist id="game-names">
+            {% for g in games %}
+            <option value="{{ g['baseGameName'] }}">
+            {% endfor %}
+        </datalist>
+    </div>
+
+    <div class="form-group" id="block-edition">
+        <label>Издание:</label>
+        <select name="editionId" id="editionId" required>
+            {% for e in editions %}
+            <option value="{{ e['editionId'] }}" {% if e['editionName'] == product['edition'] %}selected{% endif %}>{{ e['editionName'] }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="form-group" id="block-region">
+        <label>Регион:</label>
+        <select name="regionId" id="regionId" required>
+            {% for r in regions %}
+            <option value="{{ r['regionId'] }}" {% if r['regionId'] == product['regionId'] %}selected{% endif %}>{{ r['regionCode'] }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Издатель:</label>
+        <select name="publisherId" id="publisherId" required>
+            {% for p in publishers %}
+            <option value="{{ p['publisherId'] }}" {% if p['publisherName'] == product['publisher'] %}selected{% endif %}>{{ p['publisherName'] }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="form-group" id="block-release-year">
+        <label>Год первого релиза:</label>
+        <input type="text" inputmode="numeric" name="firstReleaseYear" id="firstReleaseYear" value="{{ product['release_year'] or '' }}" placeholder="1990" maxlength="4" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 4);">
+    </div>
+
+    <div class="form-group" id="block-audience">
+        <label>Возрастной рейтинг:</label>
+        <select name="audience">
+            <option value="">Не указан</option>
+            <option value="0" {% if product['age_rating'] == '0' %}selected{% endif %}>0+</option>
+            <option value="6" {% if product['age_rating'] == '6' %}selected{% endif %}>6+</option>
+            <option value="12" {% if product['age_rating'] == '12' %}selected{% endif %}>12+</option>
+            <option value="16" {% if product['age_rating'] == '16' %}selected{% endif %}>16+</option>
+            <option value="18" {% if product['age_rating'] == '18' %}selected{% endif %}>18+</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Цена в RUB:</label>
+        <input type="text" inputmode="decimal" id="priceRub" name="priceRub" value="{{ product['cost_price_synthetic'] or 0 }}" class="price-input">
+    </div>
+
+    <div class="form-group">
+        <label>Количество на складе (макс. 100):</label>
+        <input type="text" inputmode="numeric" id="quantity" name="quantity" value="{{ quantity }}" maxlength="3" autocomplete="off">
+    </div>
+
+    <button type="submit" class="btn-primary" style="background: #27ae60;">💾 Сохранить изменения</button>
+</form>
+
+<style>
+    .form-group { margin-bottom: 16px; max-width: 500px; }
+    .form-group label { display: block; font-weight: bold; margin-bottom: 4px; }
+    .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+    .btn-primary { background: #2c3e50; color: white; padding: 12px 24px; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; margin-top: 20px; }
+    .btn-primary:hover { background: #34495e; }
+</style>
+
+<script>
+    const allPlatforms = [
+        {% for p in platforms %}
+        { name: "{{ p['platformName'] }}", version: "{{ p['platformVersion'] }}" },
+        {% endfor %}
+    ];
+
+    function updateVersions() {
+        const selectedName = document.getElementById('platformName').value;
+        const versionSelect = document.getElementById('platformVersion');
+        versionSelect.innerHTML = '<option value="">-- Версия --</option>';
+        if (!selectedName) return;
+
+        const filtered = allPlatforms.filter(p => p.name === selectedName);
+        filtered.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.version;
+            opt.textContent = p.version;
+            versionSelect.appendChild(opt);
+        });
+
+        // Подставляем текущую версию из БД
+        const currentPlatform = "{{ product['platform'] or '' }}";
+        if (currentPlatform.startsWith(selectedName)) {
+            const version = currentPlatform.replace(selectedName, '').trim();
+            if (version) {
+                // Если такой версии нет в списке — добавим её
+                if (!Array.from(versionSelect.options).some(o => o.value === version)) {
+                    const opt = document.createElement('option');
+                    opt.value = version;
+                    opt.textContent = version;
+                    versionSelect.appendChild(opt);
+                }
+                versionSelect.value = version;
+            }
+        } else if (filtered.length === 1) {
+            versionSelect.value = filtered[0].version;
+        }
+    }
+    updateVersions();
+
+    // Фильтрация цен (только цифры и точка)
+    document.querySelectorAll('.price-input').forEach(input => {
+        input.addEventListener('beforeinput', (e) => {
+            if (e.data && !/[0-9.]/.test(e.data)) {
+                e.preventDefault();
+            }
+            if (e.data === '.' && input.value.includes('.')) {
+                e.preventDefault();
+            }
+        });
+    });
+
+    // Фильтрация количества (только цифры, макс 100)
+    const qtyInput = document.getElementById('quantity');
+    qtyInput.addEventListener('beforeinput', (e) => {
+        if (e.data && !/[0-9]/.test(e.data)) {
+            e.preventDefault();
+        }
+    });
+    qtyInput.addEventListener('blur', () => {
+        let val = parseInt(qtyInput.value) || 0;
+        if (val > 100) val = 100;
+        if (val < 0) val = 0;
+        qtyInput.value = val;
+    });
+</script>
+{% endblock %}

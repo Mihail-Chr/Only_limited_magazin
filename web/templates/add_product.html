@@ -1,474 +1,142 @@
 {% extends "base.html" %}
-{% block title %}Добавить товар{% endblock %}
+{% block title %}{% if mode == 'edit' %}Редактировать{% elif mode == 'copy' %}Копировать{% else %}Добавить{% endif %} товар{% endblock %}
 {% block content %}
-<h2>Добавление нового товара</h2>
-<div style="margin-bottom: 15px;">
+<h2>{% if mode == 'edit' %}Редактирование{% elif mode == 'copy' %}Копирование{% else %}Добавление{% endif %} товара</h2>
+<div style="margin-bottom: 20px;">
+    {% if mode in ['edit', 'copy'] %}
+    <a href="/keeper/manage_products" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 10px 20px;">← Назад к товарам</a>
+    {% else %}
     <a href="/keeper" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 10px 20px;">← Вернуться в меню</a>
+    {% endif %}
 </div>
 
-<form id="add-product-form" method="post" action="/keeper/add_product" autocomplete="off">
+<form method="post" action="/keeper/save_product" autocomplete="off">
+    <input type="hidden" name="mode" value="{{ mode }}">
+    {% if mode == 'edit' %}<input type="hidden" name="product_id" value="{{ product['id'] }}">{% endif %}
+
     <div class="form-group">
         <label>Тип товара:</label>
-        <div style="display:flex; gap:6px;">
-            <select name="typeGoodId" id="typeGoodId" required>
-                {% for t in typeGoods %}
-                <option value="{{ t['typeGoodId'] }}">{{ t['typeGoodName'] }}</option>
-                {% endfor %}
-            </select>
-            <button type="button" class="btn-small" onclick="openModal('modal-type')">+</button>
-        </div>
+        <select name="typeGoodId" required>
+            {% for t in typeGoods %}
+            <option value="{{ t['typeGoodName'] }}" {% if product and t['typeGoodName'] == product['product_type'] %}selected{% endif %}>{{ t['typeGoodName'] }}</option>
+            {% endfor %}
+        </select>
     </div>
 
     <div class="form-group">
         <label>Платформа:</label>
         <div style="display:flex; gap:6px;">
-            <!-- Список названий платформ -->
             <select name="platformName" id="platformName" required style="flex: 2;" onchange="updateVersions()">
-                
                 {% set ns = namespace(seen=[]) %}
+                {% set cur_p = product['platform'] if product else '' %}
                 {% for p in platforms %}
                     {% if p['platformName'] not in ns.seen %}
-                        <option value="{{ p['platformName'] }}">{{ p['platformName'] }}</option>
+                        <option value="{{ p['platformName'] }}" {% if cur_p and cur_p.startswith(p['platformName']) %}selected{% endif %}>{{ p['platformName'] }}</option>
                         {% set ns.seen = ns.seen + [p['platformName']] %}
                     {% endif %}
                 {% endfor %}
             </select>
-            
-            <!-- Список версий для выбранной платформы -->
             <select name="platformVersion" id="platformVersion" required style="flex: 1;">
                 <option value="">-- Версия --</option>
             </select>
-            
-            <button type="button" class="btn-small" onclick="openModal('modal-platform')">+</button>
         </div>
     </div>
 
     <div class="form-group">
-        <label>Название игры (начните вводить для поиска):</label>
-        <input type="text" name="gameName" id="gameName" list="game-names" placeholder="Например: Doom Eternal" required autocomplete="new-password">
-        <datalist id="game-names">
-            {% for g in games %}
-            <option value="{{ g['baseGameName'] }}">
-            {% endfor %}
-        </datalist>
-        <small style="color: #7f8c8d; display: block; margin-top: 4px;">
-            Если игры нет в списке — просто введите её название, и она будет создана автоматически.
-        </small>
+        <label>Название игры:</label>
+        <input type="text" name="gameName" value="{{ product['baseGameName'] if product else '' }}" list="game-names" required>
+        <datalist id="game-names">{% for g in games %}<option value="{{ g['baseGameName'] }}">{% endfor %}</datalist>
     </div>
 
-    <div class="form-group" id="block-edition">
+    <div class="form-group">
         <label>Издание:</label>
-        <div style="display:flex; gap:6px;">
-            <select name="editionId" id="editionId" required>
-                {% for e in editions %}
-                <option value="{{ e['editionId'] }}">{{ e['editionName'] }}</option>
-                {% endfor %}
-            </select>
-            <button type="button" class="btn-small" onclick="openModal('modal-edition')">+</button>
-        </div>
-    </div>
-
-    <div class="form-group" id="block-region">
-        <label>Регион:</label>
-        <select name="regionId" id="regionId" required>
-            {% for r in regions %}
-            <option value="{{ r['regionId'] }}">{{ r['regionCode'] }}</option>
+        <select name="editionId" required>
+            {% for e in editions %}
+            <option value="{{ e['editionId'] }}" {% if product and e['editionName'] == product['edition'] %}selected{% endif %}>{{ e['editionName'] }}</option>
             {% endfor %}
         </select>
     </div>
 
-    <div class="form-group" >
+    <div class="form-group">
+        <label>Регион:</label>
+        <select name="regionId" required>
+            {% for r in regions %}
+            <option value="{{ r['regionId'] }}" {% if product and r['regionId'] == product['regionId'] %}selected{% endif %}>{{ r['regionCode'] }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="form-group">
         <label>Издатель:</label>
-        <div style="display:flex; gap:6px;">
-            <select name="publisherId" id="publisherId" required>
-                {% for p in publishers %}
-                <option value="{{ p['publisherId'] }}">{{ p['publisherName'] }}</option>
-                {% endfor %}
-            </select>
-            <button type="button" class="btn-small" onclick="openModal('modal-publisher')">+</button>
-        </div>
+        <select name="publisherId" required>
+            {% for p in publishers %}
+            <option value="{{ p['publisherId'] }}" {% if product and p['publisherName'] == product['publisher'] %}selected{% endif %}>{{ p['publisherName'] }}</option>
+            {% endfor %}
+        </select>
     </div>
 
-    <div class="form-group" id="block-release-year">
-        <label>Год первого релиза (необязательно):</label>
-        <input type="text" inputmode="numeric" name="firstReleaseYear" id="firstReleaseYear" placeholder="1990" maxlength="4" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 4);">
+    <div class="form-group">
+        <label>Год первого релиза:</label>
+        <input type="text" name="firstReleaseYear" value="{{ product['release_year'] if product else '' }}" maxlength="4">
     </div>
 
-    <div class="form-group" id="block-edition-year">
-        <label>Год выпуска этой версии (необязательно):</label>
-        <input type="text" inputmode="numeric" name="firstYearEdition" id="firstYearEdition" placeholder="2020" maxlength="4" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 4);">
-    </div>
-
-    <div class="form-group" id="block-audience">
+    <div class="form-group">
         <label>Возрастной рейтинг:</label>
         <select name="audience">
             <option value="">Не указан</option>
-            <option value="0">0+</option>
-            <option value="6">6+</option>
-            <option value="12">12+</option>
-            <option value="16">16+</option>
-            <option value="18">18+</option>
+            {% for a in ['0','6','12','16','18'] %}
+            <option value="{{ a }}" {% if product and product['age_rating'] == a %}selected{% endif %}>{{ a }}+</option>
+            {% endfor %}
         </select>
     </div>
 
-    <h3>Цена (введите в одной валюте, остальные пересчитаются)</h3>
-    <div class="price-grid">
-        <div class="form-group">
-	    <label>Цена в RUB:</label>
-	    <input type="text" inputmode="decimal" id="priceRub" name="priceRub" class="price-input">
-	</div>
-	<div class="form-group">
-	    <label>Цена в USD:</label>
-	    <input type="text" inputmode="decimal" id="priceUsd" name="priceUsd" class="price-input">
-	</div>
-	<div class="form-group">
-	    <label>Цена в EUR:</label>
-	    <input type="text" inputmode="decimal" id="priceEur" name="priceEur" class="price-input">
-	</div>
-	<div class="form-group">
-	    <label>Цена в GBP:</label>
-	    <input type="text" inputmode="decimal" id="priceGbp" name="priceGbp" class="price-input">
-	</div>
+    <div class="form-group">
+        <label>Цена (RUB):</label>
+        <input type="text" id="priceRub" name="priceRub" value="{{ product['cost_price_synthetic'] if product else '' }}">
     </div>
 
     <div class="form-group">
-	    <label>Количество на складе (макс. 100):</label>
-	    <input type="text" inputmode="numeric" id="quantity" name="quantity" value="0" maxlength="3" autocomplete="off">
+        <label>Количество:</label>
+        <input type="text" id="quantity" name="quantity" value="{{ quantity }}" maxlength="3">
     </div>
 
-    <button type="button" class="btn-primary" onclick="showConfirmation()">🔍 Проверить данные</button>
+    <button type="submit" class="btn-primary" style="background: #27ae60; padding: 12px 24px; border-radius: 4px; border: none; color: white; cursor: pointer; font-weight: bold; margin-top: 10px;">💾 Сохранить</button>
 </form>
 
 <style>
-    .form-group { margin-bottom: 16px; max-width: 500px; }
+    .form-group { margin-bottom: 16px; max-width: 400px; }
     .form-group label { display: block; font-weight: bold; margin-bottom: 4px; }
-    .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
-    .price-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 500px; }
-    .btn-primary { background: #2c3e50; color: white; padding: 12px 24px; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; margin-top: 20px; }
-    .btn-primary:hover { background: #34495e; }
-    .btn-small { background: #3498db; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; }
-    .btn-small:hover { background: #2980b9; }
+    .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
 </style>
 
 <script>
-    // Умные поля
-    const typeSelect = document.getElementById('typeGoodId');
-    const blocks = {
-        edition: document.getElementById('block-edition'),
-        region: document.getElementById('block-region'),
-        releaseYear: document.getElementById('block-release-year'),
-        editionYear: document.getElementById('block-edition-year'),
-        audience: document.getElementById('block-audience')
-    };
-
-    function updateFieldsVisibility() {
-        const typeId = typeSelect.value;
-        // Получаем название типа из option
-        const typeName = typeSelect.options[typeSelect.selectedIndex].text.toLowerCase();
-
-        // Если это игра или сборник — показываем всё
-        if (typeName.includes('game') || typeName.includes('bundle')) {
-            Object.values(blocks).forEach(b => { if (b) b.style.display = 'block'; });
-        } else {
-            // Для остального (фигурки, стилбуки) — скрываем
-            Object.values(blocks).forEach(b => { if (b) b.style.display = 'none'; });
-        }
-    }
-
-    typeSelect.addEventListener('change', updateFieldsVisibility);
-    updateFieldsVisibility();
-
-
-    // 1. Загрузка курсов валют
-    let rates = { RUB: 1.0, USD: 92.5, EUR: 100.2, GBP: 117.4 };
-    fetch('/api/rates')
-        .then(res => res.json())
-        .then(data => { rates = data; })
-        .catch(err => console.error('Ошибка загрузки курсов:', err));
-
-    // 2. Функция форматирования (округление до 2 знаков)
-    function round2(num) {
-        return Math.round(num * 100) / 100;
-    }
-
-    // 3. Функция пересчета всех валют от текущего поля
-    function recalc(sourceId) {
-        const sourceInput = document.getElementById(sourceId);
-        // Заменяем запятую на точку и убираем лишние символы
-        let valStr = sourceInput.value.replace(',', '.').replace(/[^0-9.]/g, '');
-        
-        // Отсекаем лишние точки (оставляем только первую)
-        const parts = valStr.split('.');
-        if (parts.length > 2) valStr = parts[0] + '.' + parts.slice(1).join('');
-        
-        sourceInput.value = valStr; // Обновляем поле (чтобы убрать мусор)
-        const val = parseFloat(valStr);
-
-        if (isNaN(val) || val <= 0) {
-            ['priceRub', 'priceUsd', 'priceEur', 'priceGbp'].forEach(id => {
-                if (id !== sourceId) document.getElementById(id).value = '';
-            });
-            return;
-        }
-
-        // Переводим всё в рубли
-        let priceRub;
-        if (sourceId === 'priceRub') {
-            priceRub = val;
-        } else {
-            const currency = sourceId.replace('price', '').toUpperCase();
-            priceRub = val * (rates[currency] || 1);
-        }
-
-        // Пересчитываем и записываем обратно во все поля
-        const setVal = (id, value) => {
-            if (document.activeElement.id !== id) { // Не трогаем поле, где сейчас курсор
-                document.getElementById(id).value = round2(value);
-            }
-        };
-
-        setVal('priceRub', priceRub);
-        setVal('priceUsd', priceRub / rates.USD);
-        setVal('priceEur', priceRub / rates.EUR);
-        setVal('priceGbp', priceRub / rates.GBP);
-    }
-
-    // 4. Жесткая фильтрация ввода (не даем ввести буквы и больше одной точки)
-    document.querySelectorAll('.price-input').forEach(input => {
-        // При вводе разрешаем только цифры и точку
-        input.addEventListener('beforeinput', (e) => {
-            // Разрешаем только цифры и точку
-            if (e.data && !/[0-9.]/.test(e.data)) {
-                e.preventDefault();
-            }
-            // Если вводится точка, проверяем, есть ли уже точка в поле
-            if (e.data === '.' && input.value.includes('.')) {
-                e.preventDefault();
-            }
-        });
-
-        // При потере фокуса (Tab, клик мышкой) — пересчитываем
-        input.addEventListener('blur', () => recalc(input.id));
-        
-        // При нажатии Enter — пересчитываем
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                recalc(input.id);
-            }
-        });
-    });
-
-    // 5. Фильтрация для количества (только цифры, максимум 100)
-    const qtyInput = document.getElementById('quantity');
-    
-    // Разрешаем только цифры при вводе
-    qtyInput.addEventListener('beforeinput', (e) => {
-        if (e.data && !/[0-9]/.test(e.data)) {
-            e.preventDefault();
-        }
-    });
-
-    // При уходе с поля (blur) — принудительно ставим лимит
-    qtyInput.addEventListener('blur', () => {
-        let val = parseInt(qtyInput.value) || 0;
-        if (val > 100) val = 100;
-        if (val < 0) val = 0;
-        qtyInput.value = val;
-    });
-
-    // Данные о платформах из базы (передаем через Jinja)
-    const allPlatforms = [
-        {% for p in platforms %}
-        { name: "{{ p['platformName'] }}", version: "{{ p['platformVersion'] }}" },
-        {% endfor %}
-    ];
-
+    const allPlatforms = [{% for p in platforms %}{ name: "{{ p['platformName'] }}", version: "{{ p['platformVersion'] }}" },{% endfor %}];
     function updateVersions() {
-        const selectedName = document.getElementById('platformName').value;
-        const versionSelect = document.getElementById('platformVersion');
-        
-        // Очищаем текущие версии
-        versionSelect.innerHTML = '<option value="">-- Версия --</option>';
-        
-        if (!selectedName) return;
-
-        // Фильтруем платформы по выбранному названию
-        const filtered = allPlatforms.filter(p => p.name === selectedName);
-        
-        // Добавляем отфильтрованные версии
+        const sName = document.getElementById('platformName').value;
+        const vSelect = document.getElementById('platformVersion');
+        vSelect.innerHTML = '<option value="">-- Версия --</option>';
+        if (!sName) return;
+        const filtered = allPlatforms.filter(p => p.name === sName);
         filtered.forEach(p => {
             const opt = document.createElement('option');
-            opt.value = p.version;
-            opt.textContent = p.version;
-            versionSelect.appendChild(opt);
+            opt.value = p.version; opt.textContent = p.version;
+            vSelect.appendChild(opt);
         });
-        
-        // Если версия всего одна, выбираем её автоматически
-        if (filtered.length === 1) {
-            versionSelect.value = filtered[0].version;
-        }
-    }
-
-
-</script>
-
-<!-- Модальное окно для типа товара -->
-<div id="modal-type" class="modal" style="display:none;">
-    <div class="modal-content">
-        <h3>Новый тип товара</h3>
-        <form method="post" action="/api/add_type" autocomplete="off">
-            <input type="text" name="new_type_name" placeholder="Например: steelbook" required autocomplete="new-password">
-            <div class="modal-actions">
-                <button type="submit" class="btn-primary">Сохранить</button>
-                <button type="button" class="btn-secondary" onclick="document.getElementById('modal-type').style.display='none'">Отмена</button>
-            </div>
-        </form>
-    </div>
-</div>
-
-<!-- Модальное окно для издания -->
-<div id="modal-edition" class="modal" style="display:none;">
-    <div class="modal-content">
-        <h3>Новое издание</h3>
-        <form method="post" action="/api/add_edition" autocomplete="off">
-            <input type="text" name="new_type_name" placeholder="Например: Anniversary Edition" required autocomplete="new-password">
-            <div class="modal-actions">
-                <button type="submit" class="btn-primary">Сохранить</button>
-                <button type="button" class="btn-secondary" onclick="document.getElementById('modal-edition').style.display='none'">Отмена</button>
-            </div>
-        </form>
-    </div>
-</div>
-
-<!-- Модальное окно для издателя -->
-<div id="modal-publisher" class="modal" style="display:none;">
-    <div class="modal-content">
-        <h3>Новый издатель</h3>
-        <form method="post" action="/api/add_publisher" autocomplete="off">
-            <input type="text" name="new_type_name" placeholder="Например: Limited Run Games" required autocomplete="new-password">
-            <div class="modal-actions">
-                <button type="submit" class="btn-primary">Сохранить</button>
-                <button type="button" class="btn-secondary" onclick="document.getElementById('modal-publisher').style.display='none'">Отмена</button>
-            </div>
-        </form>
-    </div>
-</div>
-
-<style>
-    .modal {
-        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
-    }
-    .modal-content {
-        background: white; padding: 24px; border-radius: 8px; min-width: 300px;
-    }
-    .modal-content h3 { margin-top: 0; }
-    .modal-content input { width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #ccc; border-radius: 4px; }
-    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
-    .btn-secondary { background: #95a5a6; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
-</style>
-
-<script>
-    // Функции для открытия модальных окон
-    function openModal(id) {
-        document.getElementById(id).style.display = 'flex';
-    }
-</script>
-
-<!-- Модальное окно для платформы -->
-<div id="modal-platform" class="modal" style="display:none;">
-    <div class="modal-content">
-        <h3>Новая платформа</h3>
-        <form method="post" action="/api/add_platform" autocomplete="off">
-            <input type="text" id="new-platform-name" name="platformName" placeholder="Название (например, PlayStation)" required autocomplete="off">
-            <input type="text" id="new-platform-version" name="platformVersion" placeholder="Версия (например, 4, 5, Mega Drive)" required autocomplete="off">
-            <div class="modal-actions">
-                <button type="submit" class="btn-primary">Сохранить</button>
-                <button type="button" class="btn-secondary" onclick="document.getElementById('modal-platform').style.display='none'">Отмена</button>
-            </div>
-        </form>
-    </div>
-</div>
-
-<!-- Модальное окно подтверждения -->
-<div id="modal-confirm" class="modal" style="display:none;">
-    <div class="modal-content" style="min-width: 400px;">
-        <h3>Проверьте данные товара</h3>
-        <div id="confirm-content" style="margin-bottom: 20px; line-height: 1.6;"></div>
-        <div class="modal-actions">
-            <button type="button" class="btn-primary" onclick="document.getElementById('add-product-form').submit()">✅ Всё верно, сохранить</button>
-            <button type="button" class="btn-secondary" onclick="document.getElementById('modal-confirm').style.display='none'">✏️ Исправить</button>
-        </div>
-    </div>
-</div>
-
-<script>
-    function showConfirmation() {
-        const form = document.getElementById('add-product-form');
-        const formData = new FormData(form);
-  	
-        // --- ПРОВЕРКА ГОДОВ ---
-        const relYear = document.getElementById('firstReleaseYear').value;
-        const edYear = document.getElementById('firstYearEdition').value;
-        
-        // Проверка на допустимые значения (1990 - 2100)
-        if (relYear && (parseInt(relYear) < 1990 || parseInt(relYear) > 2100)) {
-            alert('Год первого релиза должен быть между 1990 и 2100.');
-            return; // Останавливаем выполнение, окно не открывается
-        }
-        if (edYear && (parseInt(edYear) < 1990 || parseInt(edYear) > 2100)) {
-            alert('Год выпуска версии должен быть между 1990 и 2100.');
-            return;
-        }
-        
-        // Проверка на логику: версия не может быть раньше релиза
-        if (relYear && edYear && parseInt(edYear) < parseInt(relYear)) {
-            alert('Год выпуска версии не может быть меньше года первого релиза!');
-            return;
-        }
-        
-        // Словарь перевода технических имен в русские
-        const labels = {
-            'typeGoodId': 'Тип товара',
-            'platformName': 'Платформа',
-            'platformVersion': 'Версия платформы',
-            'gameName': 'Название игры',
-            'editionId': 'Издание',
-            'regionId': 'Регион',
-            'publisherId': 'Издатель',
-            'firstReleaseYear': 'Год первого релиза',
-            'firstYearEdition': 'Год этой версии',
-            'audience': 'Возрастной рейтинг',
-            'priceRub': 'Цена (RUB)',
-            'priceUsd': 'Цена (USD)',
-            'priceEur': 'Цена (EUR)',
-            'priceGbp': 'Цена (GBP)',
-            'quantity': 'Количество'
-        };
-        
-        let html = '<ul style="padding-left: 20px;">';
-        for (let [key, value] of formData.entries()) {
-            if (value.trim() !== '') {
-                // Если поле есть в словаре — берем русское название, иначе оставляем как есть
-                let label = labels[key] || key;
-                
-                // Для select-полей (где value = ID) подменяем ID на текст
-                if (key === 'typeGoodId' || key === 'editionId' || key === 'regionId' || key === 'publisherId') {
-                    const select = form.querySelector(`[name="${key}"]`);
-                    if (select) {
-                        value = select.options[select.selectedIndex].text;
-                    }
+        const curP = "{{ product['platform'] if product else '' }}";
+        if (curP.startsWith(sName)) {
+            const v = curP.replace(sName, '').trim();
+            if (v) {
+                if (!Array.from(vSelect.options).some(o => o.value === v)) {
+                    const opt = document.createElement('option');
+                    opt.value = v; opt.textContent = v;
+                    vSelect.appendChild(opt);
                 }
-                
-                html += `<li><b>${label}:</b> ${value}</li>`;
+                vSelect.value = v;
             }
+        } else if (filtered.length === 1) {
+            vSelect.value = filtered[0].version;
         }
-        html += '</ul>';
-        
-        document.getElementById('confirm-content').innerHTML = html;
-        document.getElementById('modal-confirm').style.display = 'flex';
     }
+    document.addEventListener('DOMContentLoaded', updateVersions);
 </script>
-
 {% endblock %}

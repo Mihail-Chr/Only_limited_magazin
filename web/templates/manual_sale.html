@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% block title %}Ручная продажа{% endblock %}
+{% block content %}
+<h2>Ручная продажа</h2>
+<form id="manual-sale-form" method="post" action="/seller/manual_sale" autocomplete="off">
+    
+    <input type="hidden" name="product_id" id="product-id" required>
+    <input type="hidden" name="cost_price" id="cost-price" value="0">
+
+    <div class="form-group" style="margin-bottom: 15px; max-width: 700px;">
+        <label style="font-weight:bold;">Поиск товара:</label>
+        <input type="text" id="product-search" placeholder="Введите название или артикул..." style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px; margin-bottom:5px;" autocomplete="off">
+        
+        <div style="max-height: 250px; overflow-y: auto; border: 1px solid #ccc; border-radius: 4px; background: #fff;">
+            <table id="product-table" style="width:100%; border-collapse: collapse; font-size: 14px;">
+                <thead style="position: sticky; top: 0; background: #f8f9fa;">
+                    <tr>
+                        <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Название</th>
+                        <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Платформа</th>
+                        <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Остаток</th>
+                        <th style="padding: 8px; text-align: center; border-bottom: 1px solid #ddd;">Действие</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in products %}
+                    <tr class="product-row" data-name="{{ p.name|lower }}" data-id="{{ p.id }}" data-stock="{{ p.stock }}" data-cost="{{ p.cost_price }}">
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">{{ p.name }}</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">{{ p.platform or '—' }}</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">{{ p.stock }}</td>
+                        <td style="padding: 8px; text-align: center; border-bottom: 1px solid #eee;">
+                            <button type="button" class="select-btn" data-stock="{{ p.stock }}" style="background: {% if p.stock > 0 %}#3498db{% else %}#e74c3c{% endif %}; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer;">Выбрать</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="selected-item-box" style="display:none; margin-bottom: 15px; padding: 15px; background: #e8f8f5; border: 1px solid #1abc9c; border-radius: 4px; max-width: 500px;">
+        <strong>Выбран товар:</strong> <span id="selected-name"></span><br>
+        <span id="selected-platform" style="color: #7f8c8d; font-size: 14px;"></span><br>
+        <span id="selected-cost" style="color: #7f8c8d; font-size: 14px;"></span>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; max-width: 500px;">
+        <label style="font-weight:bold;">Количество (макс: <span id="max-qty">0</span>):</label>
+        <input type="number" name="quantity" id="quantity" value="1" min="1" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;">
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; max-width: 500px;">
+        <label style="font-weight:bold;">Цена продажи (₽):</label>
+        <input type="number" name="sale_price" id="sale_price" step="0.01" min="0" required style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;">
+        <small id="price-warning" style="color: #e74c3c; display: none; font-weight: bold; margin-top: 5px; display:block;">Внимание: Цена ниже учётной стоимости!</small>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; max-width: 500px;">
+        <label style="font-weight:bold;">Дата продажи:</label>
+        <input type="date" name="order_date" id="order_date" value="{{ today }}" required style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;">
+        <small id="date-error" style="color: #e74c3c; display: none;">Дата не может быть в будущем!</small>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; max-width: 500px;">
+        <label style="font-weight:bold;">Покупатель:</label>
+        <input type="text" name="buyer_nickname" value="Физлицо" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;">
+    </div>
+
+    <button type="submit" id="submit-btn" disabled style="background:#27ae60; color:white; padding:12px 24px; border:none; border-radius:4px; font-weight:bold; cursor:not-allowed; opacity:0.5;">💾 Сохранить продажу</button>
+</form>
+
+<div id="alert-box" style="display:none; margin-top:15px; padding:15px; background:#ffebee; border:1px solid #e74c3c; border-radius:4px; color:#c0392b; max-width: 500px;"></div>
+
+<script>
+    const searchInput = document.getElementById('product-search');
+    const rows = document.querySelectorAll('.product-row');
+    const hiddenId = document.getElementById('product-id');
+    const hiddenCost = document.getElementById('cost-price');
+    const selectedBox = document.getElementById('selected-item-box');
+    const selectedName = document.getElementById('selected-name');
+    const selectedPlatform = document.getElementById('selected-platform');
+    const selectedCost = document.getElementById('selected-cost');
+    const maxQtySpan = document.getElementById('max-qty');
+    const qtyInput = document.getElementById('quantity');
+    const submitBtn = document.getElementById('submit-btn');
+    const dateInput = document.getElementById('order_date');
+    const dateError = document.getElementById('date-error');
+    
+    const priceInput = document.getElementById('sale_price');
+    const priceWarning = document.getElementById('price-warning');
+
+    // 1. ПОИСК
+    searchInput.addEventListener('input', function() {
+        const q = this.value.toLowerCase().trim();
+        rows.forEach(row => {
+            const name = row.dataset.name;
+            if (name.includes(q)) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    });
+
+    // 2. ВЫБОР ТОВАРА
+    document.querySelectorAll('.select-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const stock = parseInt(this.dataset.stock);
+            if (stock === 0) {
+                const alertBox = document.getElementById('alert-box');
+                alertBox.textContent = 'Нет остатка на складе. Перейдите в меню Кладовщика → Инвентаризация.';
+                alertBox.style.display = 'block';
+                return;
+            }
+
+            const row = this.closest('tr');
+            const id = row.dataset.id;
+            const name = row.querySelector('td:nth-child(1)').textContent;
+            const platform = row.querySelector('td:nth-child(2)').textContent;
+            const cost = parseFloat(row.dataset.cost) || 0;
+
+            hiddenId.value = id;
+            hiddenCost.value = cost;
+            
+            selectedName.textContent = name;
+            selectedPlatform.textContent = platform;
+            selectedCost.textContent = `Учётная цена: ${cost.toFixed(2)} ₽`;
+            selectedBox.style.display = 'block';
+            
+            maxQtySpan.textContent = stock;
+            qtyInput.max = stock;
+            if (parseInt(qtyInput.value) > stock) qtyInput.value = stock;
+            
+            submitBtn.disabled = false;
+            submitBtn.style.opacity = '1';
+            submitBtn.style.cursor = 'pointer';
+            document.getElementById('alert-box').style.display = 'none';
+            
+            // Если цена уже введена, перепроверяем ее
+            checkPrice();
+        });
+    });
+
+    // 3. ПРОВЕРКА ДАТЫ
+    dateInput.addEventListener('change', function() {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const selectedDate = new Date(this.value);
+
+        if (selectedDate > today) {
+            dateError.style.display = 'block';
+            this.style.borderColor = '#e74c3c';
+        } else {
+            dateError.style.display = 'none';
+            this.style.borderColor = '#ccc';
+        }
+    });
+
+    // 4. ПРОВЕРКА ЦЕНЫ (НИЖЕ УЧЕТНОЙ)
+    function checkPrice() {
+        const cost = parseFloat(hiddenCost.value) || 0;
+        const price = parseFloat(priceInput.value) || 0;
+        
+        if (price > 0 && price < cost) {
+            priceWarning.style.display = 'block';
+            priceInput.style.borderColor = '#e74c3c';
+        } else {
+            priceWarning.style.display = 'none';
+            priceInput.style.borderColor = '#ccc';
+        }
+    }
+    priceInput.addEventListener('input', checkPrice);
+
+    // 5. СОХРАНЕНИЕ
+    document.getElementById('manual-sale-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const alertBox = document.getElementById('alert-box');
+        alertBox.style.display = 'none';
+        
+        // Проверка, что товар выбран
+        if (!hiddenId.value) {
+            alertBox.textContent = 'Пожалуйста, выберите товар.';
+            alertBox.style.display = 'block';
+            return;
+        }
+        
+        // Проверка даты
+        if (dateError.style.display === 'block') {
+            alertBox.textContent = 'Исправьте дату продажи.';
+            alertBox.style.display = 'block';
+            return;
+        }
+
+        const data = new FormData(e.target);
+        try {
+            const res = await fetch('/seller/manual_sale', { method: 'POST', body: data });
+            if (res.redirected) window.location.href = res.url;
+            else {
+                const json = await res.json();
+                if (json.ok) window.location.href = '/seller/manual_sales';
+                else {
+                    alertBox.textContent = json.error || 'Ошибка сохранения';
+                    alertBox.style.display = 'block';
+                }
+            }
+        } catch (err) {
+            alertBox.textContent = 'Ошибка сети';
+            alertBox.style.display = 'block';
+        }
+    });
+</script>
+{% endblock %}
