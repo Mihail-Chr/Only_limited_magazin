@@ -3,7 +3,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 from src.db import get_conn
-from datetime import date
+from src.config import get_store
+from src.ozon_client import OzonClient
+from datetime import date, datetime
+import json
 
 router = APIRouter(prefix="/seller", tags=["seller"])
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -26,10 +29,6 @@ def seller_dashboard(request: Request):
     return templates.TemplateResponse(request, "seller.html", {"rows": rows, "platforms": platforms})
 
 # --- РУЧНАЯ ПРОДАЖА ---
-MANUAL_STORE_CODE = "manual"
-DEFAULT_BUYER_ID = 1
-DEFAULT_BUYER_NICKNAME = "Физлицо"
-
 @router.get("/manual_sale", response_class=HTMLResponse)
 def manual_sale_form(request: Request):
     with get_conn() as conn:
@@ -51,15 +50,17 @@ def manual_sale_save(
     order_date: str = Form(...), buyer_nickname: str = Form("Физлицо"), notes: str = Form("")
 ):
     with get_conn() as conn:
-        # Проверка остатка
         stock_row = conn.execute("SELECT quantity FROM stock_manual WHERE product_id = ?", (product_id,)).fetchone()
         if not stock_row or stock_row["quantity"] < quantity:
             return JSONResponse({"ok": False, "error": "Недостаточно остатка", "redirect": "/keeper/inventory"}, status_code=400)
 
         store_row = conn.execute("SELECT id FROM store WHERE code = 'manual'").fetchone()
-        store_id = store_row["id"] if store_row else 3
+        if not store_row:
+            cur_s = conn.execute("INSERT INTO store (code, name, has_api, is_active) VALUES ('manual', 'Ручная продажа', 0, 1)")
+            store_id = cur_s.lastrowid
+        else:
+            store_id = store_row["id"]
 
-        # Проверяем, есть ли покупатель с таким ником
         buyer_row = conn.execute("SELECT buyerId FROM buyer WHERE buyerNickname = ?", (buyer_nickname,)).fetchone()
         if buyer_row:
             buyer_id = buyer_row["buyerId"]
@@ -99,7 +100,7 @@ def manual_sales_list(request: Request):
         """).fetchall()
     return templates.TemplateResponse(request, "manual_sales_list.html", {"rows": rows})
 
-# --- СИНХРОНИЗАЦИЯ ПРОДАЖ С OZON (ЗАГЛУШКА ДЛЯ ШАГА 5) ---
+# --- СИНХРОНИЗАЦИЯ ПРОДАЖ С OZON ---
 @router.get("/sync_ozon", response_class=HTMLResponse)
 def sync_ozon_page(request: Request):
     with get_conn() as conn:
@@ -111,5 +112,150 @@ def sync_ozon_page(request: Request):
 
 @router.post("/sync_ozon")
 def sync_ozon_start(date_from: str = Form(...), date_to: str = Form(...)):
-    # TODO: Реализация в Шаге 5
-    return JSONResponse({"ok": True, "message": "Синхронизация будет реализована на Шаге 5"})
+    # 1. Получаем магазины с API
+    stores = []
+    with get_conn() as conn:
+        stores = conn.execute("SELECT code, name, client_id, api_key FROM store WHERE has_api = 1").fetchall()
+        
+    if not stores:
+        return JSONResponse({"ok": False, "error": "Нет магазинов с API"})
+
+    total_items = 0
+    
+    for store in stores:
+        try:
+            # 2. Подключаемся к OZON
+            store_config = get_store("ozon", store["code"])
+            client = OzonClient(store_config)
+            
+            # 3. Запрашиваем отправления за период
+            since = f"{date_from}T00:00:00Z"
+            to = f"{date_to}T23:59:59Z"
+            
+            with get_conn() as conn:
+                store_id_db = conn.execute("SELECT id FROM store WHERE code = ?", (store["code"],)).fetchone()["id"]
+                
+                # Тянем постранично
+                cursor = ""
+                while True:
+                    payload = {
+                        "dir": "ASC",
+                        "filter": {"since": since, "to": to, "status": ""},
+                        "limit": 100,
+                        "cursor": cursor,
+                        "with": {"analytics_data": False, "barcodes": False, "financial_data": False}
+                    }
+                    data = client.post("/v4/posting/fbs/list", payload)
+                    postings = data.get("postings", [])
+                    
+                    if not postings:
+                        break
+                        
+                    for p in postings:
+                        posting_number = p.get("posting_number")
+                        if not posting_number:
+                            continue
+                            
+                        # Проверяем, нет ли уже такого отправления
+                        existing = conn.execute("SELECT id FROM posting WHERE posting_number = ?", (posting_number,)).fetchone()
+                        if existing:
+                            continue # Уже загружен
+                            
+                        # OZON отдает дату в in_process_at (начало сборки) или shipment_date
+                        created_at = p.get("in_process_at", "")[:10]
+                        if not created_at:
+                            created_at = p.get("shipment_date", "")[:10]
+                        if not created_at:
+                            created_at = date.today().isoformat() # Если совсем пусто - ставим сегодня
+                        
+                        # Покупатель (из OZON, если есть, иначе Физлицо)
+                        # В OZON v4 нет прямого поля buyer, поэтому ставим Физлицо
+                        buyer_nickname = "Физлицо"
+                        buyer_row = conn.execute("SELECT buyerId FROM buyer WHERE buyerNickname = ?", (buyer_nickname,)).fetchone()
+                        buyer_id = buyer_row["buyerId"] if buyer_row else 1
+                        
+                        # Вставляем posting
+                        cur = conn.execute("""
+                            INSERT INTO posting(posting_number, store_id, status, created_at, source, buyer_id, buyer_nickname, is_preorder)
+                            VALUES(?, ?, ?, ?, 'ozon', ?, ?, 0)
+                        """, (posting_number, store_id_db, p.get("status"), created_at, buyer_id, buyer_nickname))
+                        posting_id = cur.lastrowid
+                        
+                        # Вставляем позиции
+                        for prod in p.get("products", []):
+                            offer_id = prod.get("offer_id")
+                            product_row = conn.execute("SELECT id FROM product WHERE offer_id = ?", (offer_id,)).fetchone()
+                            product_id = product_row["id"] if product_row else None
+                            
+                            # Проверка остатка для preorder
+                            stock_row = conn.execute("SELECT quantity FROM stock_manual WHERE product_id = ?", (product_id,)).fetchone()
+                            stock_qty = stock_row["quantity"] if stock_row else 0
+                            is_preorder = 1 if stock_qty <= 0 else 0
+                            
+                            # Если preorder, обновляем флаг в posting
+                            if is_preorder:
+                                conn.execute("UPDATE posting SET is_preorder = 1 WHERE id = ?", (posting_id,))
+                            
+                            raw_price = prod.get("price", 0)
+                            if isinstance(raw_price, dict):
+                                price_val = float(raw_price.get("amount", 0) or 0)
+                            else:
+                                price_val = float(raw_price or 0)
+                                
+                            sku = str(prod.get("sku", "") or "")
+                            
+                            conn.execute("""
+                                INSERT INTO posting_item(posting_id, product_id, offer_id, sku, quantity, price, currency)
+                                VALUES(?, ?, ?, ?, ?, ?, 'RUB')
+                            """, (posting_id, product_id, offer_id, sku, int(prod.get("quantity", 1)), price_val))
+                            
+                            total_items += 1
+                    
+                    # Пагинация
+                    cursor = data.get("cursor", "")
+                    if not data.get("has_next") or not cursor:
+                        break
+            
+            conn.commit()
+            
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": f"Ошибка магазина {store['name']}: {str(e)}"})
+
+    # 4. Сохраняем лог синхронизации
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT INTO sync_log(sync_type, date_from, date_to, records_count)
+            VALUES('ozon_sales', ?, ?, ?)
+        """, (date_from, date_to, total_items))
+        conn.commit()
+
+    return JSONResponse({"ok": True, "message": f"Загружено позиций: {total_items}"})
+
+@router.get("/preorders", response_class=HTMLResponse)
+def preorders_list(request: Request):
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT 
+                po.posting_number, 
+                po.created_at, 
+                po.status, 
+                po.is_preorder,
+                s.name AS store_name,
+                'OZON' AS marketplace,
+                pi.quantity, 
+                pi.price, 
+                pi.offer_id,
+                pi.sku,
+                p.baseGameName AS name, 
+                p.platform,
+                w.name AS warehouse_name
+            FROM posting po
+            JOIN posting_item pi ON pi.posting_id = po.id
+            JOIN product p ON p.id = pi.product_id
+            JOIN store s ON s.id = po.store_id
+            LEFT JOIN listing l ON l.product_id = p.id AND l.store_id = po.store_id
+            LEFT JOIN warehouse w ON w.id = l.warehouse_id
+            WHERE po.is_preorder = 1 AND po.status != 'cancelled'
+            ORDER BY s.name, po.created_at, po.posting_number, pi.sku
+        """).fetchall()
+    return templates.TemplateResponse(request, "preorders_list.html", {"rows": rows})

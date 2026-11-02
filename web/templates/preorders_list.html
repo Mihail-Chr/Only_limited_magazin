@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Товары под заказ{% endblock %}
+{% block content %}
+<h2>Товары под заказ (ожидают отправки)</h2>
+<div style="margin-bottom: 20px;">
+    <a href="/seller" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 10px 20px;">← Назад к продавцу</a>
+</div>
+
+<table id="preorders-table">
+    <thead>
+        <tr>
+            <th>Площадка</th>
+            <th>Магазин</th>
+            <th>№ заказа</th>
+            <th>Дата</th>
+            <th>Статус</th>
+            <th>Артикул (offer_id)</th>
+            <th>SKU</th>
+            <th>Товар</th>
+            <th>Платформа</th>
+            <th>Склад</th>
+            <th>Кол-во</th>
+            <th>Цена</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% set ns = namespace(current_order="", color_idx=0) %}
+        {% for r in rows %}
+            {% if r.posting_number != ns.current_order %}
+                {% set ns.current_order = r.posting_number %}
+                {% set ns.color_idx = (ns.color_idx + 1) % 2 %}
+            {% endif %}
+            <tr class="{% if ns.color_idx == 1 %}row-odd{% else %}row-even{% endif %}">
+                <td>{{ r.marketplace }}</td>
+                <td>{{ r.store_name }}</td>
+                <td>{{ r.posting_number }}</td>
+                <td>{{ r.created_at[:10] if r.created_at else "—" }}</td>
+                <td>{{ r.status }}</td>
+                <td>{{ r.offer_id or "—" }}</td>
+                <td>{{ r.sku or "—" }}</td>
+                <td>{{ r.name }}</td>
+                <td>{{ r.platform or "—" }}</td>
+                <td>{{ r.warehouse_name or "—" }}</td>
+                <td class="num">{{ r.quantity }}</td>
+                <td class="num">{{ "%.2f"|format(r.price or 0) }} ₽</td>
+            </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if not rows %}
+<p style="color: #7f8c8d;">Нет товаров под заказ. Все продажи обеспечены складом.</p>
+{% endif %}
+
+<style>
+    #preorders-table { width: 100%; border-collapse: collapse; }
+    #preorders-table th, #preorders-table td { padding: 8px; border: 1px solid #ddd; text-align: left; }
+    #preorders-table th { background-color: #f8f9fa; font-weight: bold; }
+    
+    /* Легкая заливка строк (чтобы не сливались, но было видно группировку) */
+    .row-odd { background-color: #f9fbfd; }
+    .row-even { background-color: #eef4f9; }
+    
+    /* Жирная линия сверху для нового заказа */
+    .row-odd td { border-top: 2px solid #3498db; }
+</style>
+{% endblock %}
