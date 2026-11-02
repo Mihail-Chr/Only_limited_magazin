@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.templating import Jinja2Templates
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel
 import time
 import shutil
+import difflib
 from pathlib import Path
 from src.db import get_conn
 
@@ -19,6 +20,15 @@ class StockItem(BaseModel):
 class StockInlineUpdate(BaseModel):
     product_id: int
     quantity: int
+
+class CheckDuplicatesReq(BaseModel):
+    gameName: str
+    platformName: str
+    platformVersion: Optional[str] = None
+    editionId: Optional[str] = None
+    regionId: Optional[str] = None
+    publisherId: Optional[str] = None
+    exclude_id: Optional[int] = None # Для редактирования
 
 @router.get("/", response_class=HTMLResponse)
 def keeper_menu(request: Request):
@@ -88,13 +98,17 @@ def manage_products(request: Request):
 # --- ДОБАВЛЕНИЕ / КОПИРОВАНИЕ / РЕДАКТИРОВАНИЕ ---
 
 def _get_dictionaries(conn):
+    # Добавляем все платформы из товаров (включая составные PS4/PS5)
+    all_db_platforms = conn.execute('SELECT DISTINCT platform FROM product WHERE platform IS NOT NULL').fetchall()
+    
     return {
         "typeGoods": conn.execute('SELECT "typeGoodId", "typeGoodName" FROM "typeGoods" ORDER BY "sortOrder"').fetchall(),
         "platforms": conn.execute('SELECT "platformId", "platformName", "platformVersion" FROM platforms ORDER BY "sortOrder"').fetchall(),
         "editions": conn.execute('SELECT "editionId", "editionName" FROM "editionTypes" ORDER BY "sortOrder"').fetchall(),
         "regions": conn.execute('SELECT "regionId", "regionCode" FROM regions ORDER BY "sortOrder"').fetchall(),
         "publishers": conn.execute('SELECT "publisherId", "publisherName" FROM publishers ORDER BY "publisherName"').fetchall(),
-        "games": conn.execute('SELECT DISTINCT "baseGameName" FROM product WHERE "baseGameName" IS NOT NULL').fetchall()
+        "games": conn.execute('SELECT DISTINCT "baseGameName" FROM product WHERE "baseGameName" IS NOT NULL').fetchall(),
+        "all_db_platforms": [r["platform"] for r in all_db_platforms]
     }
 
 @router.get("/add_product", response_class=HTMLResponse)
@@ -124,7 +138,50 @@ def edit_product_page(request: Request, product_id: int):
     ctx.update({"product": prod, "quantity": stock["quantity"] if stock else 0, "mode": "edit"})
     return templates.TemplateResponse(request, "add_product.html", ctx)
 
-# Обработчик сохранения (безопасный)
+# --- ПРОВЕРКА ДУБЛЕЙ ---
+@router.post("/check_duplicates")
+def check_duplicates(data: CheckDuplicatesReq):
+    with get_conn() as conn:
+        full_platform = f"{data.platformName} {data.platformVersion or ''}".strip()
+        
+        ed_name = conn.execute('SELECT "editionName" FROM "editionTypes" WHERE "editionId" = ?', (data.editionId,)).fetchone()["editionName"] if data.editionId and data.editionId != "None" else None
+        pub_name = conn.execute('SELECT "publisherName" FROM publishers WHERE "publisherId" = ?', (data.publisherId,)).fetchone()["publisherName"] if data.publisherId and data.publisherId != "None" else None
+
+        # Ищем по платформе, исключая текущий ID (если редактируем)
+        query = """
+            SELECT p.id, p.baseGameName, p.platform, p.edition, p.publisher, 
+                   r.regionCode AS region, COALESCE(sm.quantity, 0) AS quantity
+            FROM product p
+            LEFT JOIN regions r ON r.regionId = p.regionId
+            LEFT JOIN stock_manual sm ON sm.product_id = p.id
+            WHERE p.platform = ?
+        """
+        params = [full_platform]
+        
+        if data.exclude_id:
+            query += " AND p.id != ?"
+            params.append(data.exclude_id)
+
+        candidates = conn.execute(query, tuple(params)).fetchall()
+
+        matches = []
+        for row in candidates:
+            ratio = difflib.SequenceMatcher(None, data.gameName.lower(), row["baseGameName"].lower()).ratio()
+            
+            ed_match = (row["edition"] == ed_name) if ed_name else True
+            pub_match = (row["publisher"] == pub_name) if pub_name else True
+            
+            if ratio >= 0.8 and ed_match and pub_match:
+                matches.append({
+                    "id": row["id"], "name": row["baseGameName"], "platform": row["platform"],
+                    "edition": row["edition"], "publisher": row["publisher"], "region": row["region"],
+                    "quantity": row["quantity"], "score": round(ratio * 100)
+                })
+
+        matches.sort(key=lambda x: x["score"], reverse=True)
+        return {"ok": True, "matches": matches}
+
+# --- СОХРАНЕНИЕ ТОВАРА ---
 @router.post("/save_product")
 def save_product(
     mode: str = Form(...), product_id: str = Form(None),
@@ -149,11 +206,9 @@ def save_product(
         except ValueError: pass
 
     with get_conn() as conn:
-        # Получаем ID склада по умолчанию
         wh_row = conn.execute("SELECT id FROM warehouse LIMIT 1").fetchone()
         warehouse_id = wh_row["id"] if wh_row else 1
 
-        # Безопасно ищем имена
         ed_row = conn.execute('SELECT "editionName" FROM "editionTypes" WHERE "editionId" = ?', (editionId,)).fetchone() if editionId and str(editionId) != "None" else None
         pub_row = conn.execute('SELECT "publisherName" FROM publishers WHERE "publisherId" = ?', (publisherId,)).fetchone() if publisherId and str(publisherId) != "None" else None
         
@@ -177,7 +232,6 @@ def save_product(
             """, (offer_id, full_name, gameName, typeGoodId, full_platform, ed_name, to_int(audience), pub_name, to_int(firstReleaseYear), to_float(priceRub)))
             pid = cur.lastrowid
             
-            # Вставляем листинг с warehouse_id
             conn.execute("""
                 INSERT INTO listing (store_id, product_id, warehouse_id, price, status) 
                 VALUES (1, ?, ?, ?, 'draft')

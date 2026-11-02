@@ -10,7 +10,7 @@
     {% endif %}
 </div>
 
-<form method="post" action="/keeper/save_product" autocomplete="off">
+<form id="product-form" method="post" action="/keeper/save_product" autocomplete="off">
     <input type="hidden" name="mode" value="{{ mode }}">
     {% if mode == 'edit' %}<input type="hidden" name="product_id" value="{{ product['id'] }}">{% endif %}
 
@@ -44,13 +44,14 @@
 
     <div class="form-group">
         <label>Название игры:</label>
-        <input type="text" name="gameName" value="{{ product['baseGameName'] if product else '' }}" list="game-names" required>
+        <input type="text" name="gameName" id="gameName" value="{{ product['baseGameName'] if product else '' }}" list="game-names" required>
         <datalist id="game-names">{% for g in games %}<option value="{{ g['baseGameName'] }}">{% endfor %}</datalist>
     </div>
 
     <div class="form-group">
         <label>Издание:</label>
-        <select name="editionId" required>
+        <select name="editionId" id="editionId">
+            <option value="">— Без издания —</option>
             {% for e in editions %}
             <option value="{{ e['editionId'] }}" {% if product and e['editionName'] == product['edition'] %}selected{% endif %}>{{ e['editionName'] }}</option>
             {% endfor %}
@@ -59,7 +60,8 @@
 
     <div class="form-group">
         <label>Регион:</label>
-        <select name="regionId" required>
+        <select name="regionId" id="regionId">
+            <option value="">— Без региона —</option>
             {% for r in regions %}
             <option value="{{ r['regionId'] }}" {% if product and r['regionId'] == product['regionId'] %}selected{% endif %}>{{ r['regionCode'] }}</option>
             {% endfor %}
@@ -68,7 +70,8 @@
 
     <div class="form-group">
         <label>Издатель:</label>
-        <select name="publisherId" required>
+        <select name="publisherId" id="publisherId">
+            <option value="">— Без издателя —</option>
             {% for p in publishers %}
             <option value="{{ p['publisherId'] }}" {% if product and p['publisherName'] == product['publisher'] %}selected{% endif %}>{{ p['publisherName'] }}</option>
             {% endfor %}
@@ -100,8 +103,32 @@
         <input type="text" id="quantity" name="quantity" value="{{ quantity }}" maxlength="3">
     </div>
 
-    <button type="submit" class="btn-primary" style="background: #27ae60; padding: 12px 24px; border-radius: 4px; border: none; color: white; cursor: pointer; font-weight: bold; margin-top: 10px;">💾 Сохранить</button>
+    <button type="submit" id="save-btn" class="btn-primary" style="background: #27ae60; padding: 12px 24px; border-radius: 4px; border: none; color: white; cursor: pointer; font-weight: bold; margin-top: 10px;">💾 Сохранить</button>
 </form>
+
+<!-- Модальное окно дублей -->
+<div id="duplicates-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+    <div style="background:white; padding:20px; border-radius:8px; max-width:800px; width:90%; max-height:80vh; overflow-y:auto;">
+        <h3 style="margin-top:0; color:#e74c3c;">⚠️ Найдены похожие товары!</h3>
+        <p>Проверьте, возможно, вы пытаетесь сохранить дубль.</p>
+        <table style="width:100%; border-collapse:collapse; margin-top:15px; font-size:14px;">
+            <thead>
+                <tr style="background:#f8f9fa;">
+                    <th style="padding:8px; text-align:left; border-bottom:1px solid #ddd;">Совпадение</th>
+                    <th style="padding:8px; text-align:left; border-bottom:1px solid #ddd;">Название</th>
+                    <th style="padding:8px; text-align:left; border-bottom:1px solid #ddd;">Платформа</th>
+                    <th style="padding:8px; text-align:left; border-bottom:1px solid #ddd;">Остаток</th>
+                    <th style="padding:8px; text-align:center; border-bottom:1px solid #ddd;">Действие</th>
+                </tr>
+            </thead>
+            <tbody id="duplicates-tbody"></tbody>
+        </table>
+        <div style="margin-top:20px; text-align:right; display:flex; gap:10px; justify-content:flex-end;">
+            <button type="button" onclick="document.getElementById('duplicates-modal').style.display='none';" style="background:#95a5a6; color:white; padding:10px 20px; border:none; border-radius:4px; cursor:pointer;">Отмена</button>
+            <button type="button" id="force-save-btn" style="background:#e74c3c; color:white; padding:10px 20px; border:none; border-radius:4px; cursor:pointer;">Всё равно сохранить</button>
+        </div>
+    </div>
+</div>
 
 <style>
     .form-group { margin-bottom: 16px; max-width: 400px; }
@@ -110,33 +137,113 @@
 </style>
 
 <script>
-    const allPlatforms = [{% for p in platforms %}{ name: "{{ p['platformName'] }}", version: "{{ p['platformVersion'] }}" },{% endfor %}];
+    // Собираем все возможные версии платформ из БД + стандартные
+    const allDbPlatforms = {{ all_db_platforms|tojson }};
+    const standardPlatforms = [{% for p in platforms %}{ name: "{{ p['platformName'] }}", version: "{{ p['platformVersion'] }}" },{% endfor %}];
+    
     function updateVersions() {
         const sName = document.getElementById('platformName').value;
         const vSelect = document.getElementById('platformVersion');
         vSelect.innerHTML = '<option value="">-- Версия --</option>';
         if (!sName) return;
-        const filtered = allPlatforms.filter(p => p.name === sName);
-        filtered.forEach(p => {
-            const opt = document.createElement('option');
-            opt.value = p.version; opt.textContent = p.version;
-            vSelect.appendChild(opt);
+        
+        const versions = new Set();
+        
+        // 1. Из стандартного справочника
+        standardPlatforms.filter(p => p.name === sName).forEach(p => versions.add(p.version));
+        
+        // 2. Из существующих товаров в базе (парсим "PlayStation 4 / PlayStation 5" -> "4 / 5")
+        allDbPlatforms.forEach(fullPlatform => {
+            if (fullPlatform.startsWith(sName)) {
+                const v = fullPlatform.replace(sName, '').trim();
+                if (v) versions.add(v);
+            }
         });
+        
+        // 3. Из текущего товара (если редактируем)
         const curP = "{{ product['platform'] if product else '' }}";
         if (curP.startsWith(sName)) {
             const v = curP.replace(sName, '').trim();
-            if (v) {
-                if (!Array.from(vSelect.options).some(o => o.value === v)) {
-                    const opt = document.createElement('option');
-                    opt.value = v; opt.textContent = v;
-                    vSelect.appendChild(opt);
-                }
-                vSelect.value = v;
-            }
-        } else if (filtered.length === 1) {
-            vSelect.value = filtered[0].version;
+            if (v) versions.add(v);
+        }
+        
+        // Добавляем в селект
+        Array.from(versions).sort().forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v; opt.textContent = v;
+            vSelect.appendChild(opt);
+        });
+        
+        // Подставляем текущую версию
+        if (curP.startsWith(sName)) {
+            const v = curP.replace(sName, '').trim();
+            if (v) vSelect.value = v;
         }
     }
+    
     document.addEventListener('DOMContentLoaded', updateVersions);
+
+    // Логика проверки дублей
+    const form = document.getElementById('product-form');
+    let bypassDuplicateCheck = false;
+
+    form.addEventListener('submit', async function(e) {
+        // Если мы уже решили сохранить принудительно
+        if (bypassDuplicateCheck) return; 
+
+        e.preventDefault(); // Всегда блокируем для проверки
+
+        const mode = document.querySelector('input[name="mode"]').value;
+        const productIdInput = document.querySelector('input[name="product_id"]');
+        const excludeId = (mode === 'edit' && productIdInput) ? parseInt(productIdInput.value) : null;
+
+        const data = {
+            gameName: document.getElementById('gameName').value,
+            platformName: document.getElementById('platformName').value,
+            platformVersion: document.getElementById('platformVersion').value,
+            editionId: document.getElementById('editionId').value,
+            regionId: document.getElementById('regionId').value,
+            publisherId: document.getElementById('publisherId').value,
+            exclude_id: excludeId
+        };
+
+        try {
+            const res = await fetch('/keeper/check_duplicates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const json = await res.json();
+            
+            if (json.ok && json.matches && json.matches.length > 0) {
+                const tbody = document.getElementById('duplicates-tbody');
+                tbody.innerHTML = json.matches.map(m => `
+                    <tr>
+                        <td style="padding:8px; border-bottom:1px solid #eee;"><span style="color:#e74c3c; font-weight:bold;">${m.score}%</span></td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;">${m.name}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;">${m.platform}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee;">${m.quantity}</td>
+                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:center;">
+                            <a href="/keeper/edit_product/${m.id}" style="background:#3498db; color:white; padding:4px 8px; text-decoration:none; border-radius:4px; font-size:12px;">Перейти к остаткам</a>
+                        </td>
+                    </tr>
+                `).join('');
+                document.getElementById('duplicates-modal').style.display = 'flex';
+            } else {
+                // Дублей нет - отправляем форму
+                bypassDuplicateCheck = true;
+                form.submit();
+            }
+        } catch (err) {
+            alert('Ошибка при проверке дублей: ' + err.message);
+            bypassDuplicateCheck = true;
+            form.submit();
+        }
+    });
+
+    document.getElementById('force-save-btn').addEventListener('click', function() {
+        bypassDuplicateCheck = true;
+        form.submit();
+    });
 </script>
 {% endblock %}
