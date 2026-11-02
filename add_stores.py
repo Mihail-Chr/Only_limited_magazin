@@ -12,6 +12,13 @@ for platform, stores in settings.stores.items():
         )
         print(f"Добавлен магазин: {code} ({store.name}) на площадке {platform}")
 
+# Добавляем виртуальный магазин "Ручная продажа"
+conn.execute("""
+    INSERT OR IGNORE INTO store (code, name, has_api, is_active) 
+    VALUES ('manual', 'Ручная продажа', 0, 1)
+""")
+print("Добавлен магазин: manual (Ручная продажа)")
+
 # Добавляем склад
 conn.execute(
     "INSERT OR IGNORE INTO warehouse (code, name, default_currency, is_active) VALUES ('main_warehouse', 'Основной склад', 'RUB', 1)"

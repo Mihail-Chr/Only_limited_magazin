@@ -9,6 +9,7 @@ router = APIRouter(prefix="/seller", tags=["seller"])
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
+# --- ЭКРАН ПРОДАВЦА ---
 @router.get("/", response_class=HTMLResponse)
 def seller_dashboard(request: Request):
     with get_conn() as conn:
@@ -24,10 +25,14 @@ def seller_dashboard(request: Request):
         platforms = sorted(list({r["platform"] for r in rows if r["platform"]}))
     return templates.TemplateResponse(request, "seller.html", {"rows": rows, "platforms": platforms})
 
+# --- РУЧНАЯ ПРОДАЖА ---
+MANUAL_STORE_CODE = "manual"
+DEFAULT_BUYER_ID = 1
+DEFAULT_BUYER_NICKNAME = "Физлицо"
+
 @router.get("/manual_sale", response_class=HTMLResponse)
 def manual_sale_form(request: Request):
     with get_conn() as conn:
-        # Берем ВСЕ товары, остатки и цену учета
         products = conn.execute("""
             SELECT p.id, p.offer_id, p.baseGameName AS name, p.platform,
                    COALESCE(sm.quantity, 0) AS stock,
@@ -46,21 +51,30 @@ def manual_sale_save(
     order_date: str = Form(...), buyer_nickname: str = Form("Физлицо"), notes: str = Form("")
 ):
     with get_conn() as conn:
+        # Проверка остатка
         stock_row = conn.execute("SELECT quantity FROM stock_manual WHERE product_id = ?", (product_id,)).fetchone()
         if not stock_row or stock_row["quantity"] < quantity:
             return JSONResponse({"ok": False, "error": "Недостаточно остатка", "redirect": "/keeper/inventory"}, status_code=400)
 
         store_row = conn.execute("SELECT id FROM store WHERE code = 'manual'").fetchone()
-        store_id = store_row["id"]
+        store_id = store_row["id"] if store_row else 3
+
+        # Проверяем, есть ли покупатель с таким ником
+        buyer_row = conn.execute("SELECT buyerId FROM buyer WHERE buyerNickname = ?", (buyer_nickname,)).fetchone()
+        if buyer_row:
+            buyer_id = buyer_row["buyerId"]
+        else:
+            cur_b = conn.execute("INSERT INTO buyer (buyerNickname) VALUES (?)", (buyer_nickname,))
+            buyer_id = cur_b.lastrowid
 
         today = order_date.replace("-", "")
         cnt = conn.execute("SELECT COUNT(*) FROM posting WHERE posting_number LIKE ?", (f"manual_{today}_%",)).fetchone()[0]
         posting_number = f"manual_{today}_{cnt + 1:04d}"
 
         cur = conn.execute("""
-            INSERT INTO posting(posting_number, store_id, status, created_at, source, buyer_nickname, buyer_id)
-            VALUES(?, ?, 'received', ?, 'manual', ?, 1)
-        """, (posting_number, store_id, order_date, buyer_nickname))
+            INSERT INTO posting(posting_number, store_id, status, created_at, source, buyer_id, buyer_nickname, is_preorder)
+            VALUES(?, ?, 'received', ?, 'manual', ?, ?, 0)
+        """, (posting_number, store_id, order_date, buyer_id, buyer_nickname))
         posting_id = cur.lastrowid
 
         conn.execute("""
@@ -84,3 +98,18 @@ def manual_sales_list(request: Request):
             ORDER BY po.created_at DESC, po.id DESC LIMIT 200
         """).fetchall()
     return templates.TemplateResponse(request, "manual_sales_list.html", {"rows": rows})
+
+# --- СИНХРОНИЗАЦИЯ ПРОДАЖ С OZON (ЗАГЛУШКА ДЛЯ ШАГА 5) ---
+@router.get("/sync_ozon", response_class=HTMLResponse)
+def sync_ozon_page(request: Request):
+    with get_conn() as conn:
+        last_sync = conn.execute("SELECT * FROM sync_log WHERE sync_type = 'ozon_sales' ORDER BY synced_at DESC LIMIT 1").fetchone()
+    return templates.TemplateResponse(request, "sync_ozon.html", {
+        "last_sync": last_sync,
+        "today": date.today().isoformat()
+    })
+
+@router.post("/sync_ozon")
+def sync_ozon_start(date_from: str = Form(...), date_to: str = Form(...)):
+    # TODO: Реализация в Шаге 5
+    return JSONResponse({"ok": True, "message": "Синхронизация будет реализована на Шаге 5"})

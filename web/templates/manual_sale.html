@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Ручная продажа{% endblock %}
 {% block content %}
-<h2>Ручная продажа</h2>
+<h2>Ручная продажа</h2><h2>Ручная продажа</h2>
+<div style="margin-bottom: 15px;">
+    <a href="/seller" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 10px 20px;">← Назад к продавцу</a>
+</div>
 <form id="manual-sale-form" method="post" action="/seller/manual_sale" autocomplete="off">
     
     <input type="hidden" name="product_id" id="product-id" required>
