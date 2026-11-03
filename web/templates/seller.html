@@ -3,10 +3,12 @@
 {% block content %}
 <h2>Экран продавца</h2>
 
-<div style="margin-bottom: 20px;">
+<div style="margin-bottom: 20px; display: flex; gap: 8px; flex-wrap: wrap;">
     <a href="/" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #2c3e50; color: white; font-weight: bold;">← На главную</a>
-    <a href="/seller/manual_sale" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #27ae60; color: white; font-weight: bold; margin-left: 8px;">Ручная продажа</a>
-    <a href="/seller/manual_sales" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #2980b9; color: white; font-weight: bold; margin-left: 8px;">История ручных продаж</a>
+    <a href="/seller/manual_sale" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #27ae60; color: white; font-weight: bold;">Ручная продажа</a>
+    <a href="/seller/manual_sales" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #2980b9; color: white; font-weight: bold;">История ручных продаж</a>
+    <a href="/seller/sync_ozon" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #8e44ad; color: white; font-weight: bold;">🔄 Синхронизация OZON</a>
+    <a href="/seller/preorders" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #e67e22; color: white; font-weight: bold;">📦 Товары под заказ</a>
 </div>
 
 <div style="margin-bottom: 15px;">
@@ -20,7 +22,6 @@
             <th onclick="sortTable(1)" style="cursor: pointer;">Наименование <span id="sort-name-icon">↕</span></th>
             <th>
                 Платформа
-                <!-- Фильтр внутри заголовка -->
                 <select id="platform-filter" onchange="applyFilters()" style="display: block; margin-top: 5px; font-size: 12px; padding: 2px; border-radius: 4px; width: 100%; max-width: 200px;">
                     <option value="">Все платформы</option>
                     {% for p in platforms %}
