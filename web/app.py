@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 from src.db import get_conn
-from web.routers import keeper, api, seller
+from web.routers import keeper, api, seller, settings
 
 app = FastAPI(title="Only_limited_magazin")
 BASE_DIR = Path(__file__).resolve().parent
@@ -27,7 +27,7 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 app.include_router(keeper.router)
 app.include_router(api.router)
 app.include_router(seller.router)
-
+app.include_router(settings.router)
 
 # Главная страница (GET + HEAD)
 @app.get("/", response_class=HTMLResponse)

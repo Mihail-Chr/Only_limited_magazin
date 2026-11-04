@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Настройки{% endblock %}
+{% block content %}
+<h2>Настройки</h2>
+<div style="margin-bottom: 20px;">
+    <a href="/" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #2c3e50; color: white; font-weight: bold;">← На главную</a>
+</div>
+
+<!-- Загрузка карточек -->
+<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+    <h3>Загрузка данных</h3>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <button onclick="loadProducts('limited_games')" class="btn-primary" style="background: #27ae60; padding: 10px 20px; border: none; border-radius: 4px; color: white; font-weight: bold; cursor: pointer;">📥 Загрузить карточки (LimitedGames)</button>
+        <button onclick="loadProducts('console_games')" class="btn-primary" style="background: #27ae60; padding: 10px 20px; border: none; border-radius: 4px; color: white; font-weight: bold; cursor: pointer;">📥 Загрузить карточки (Console Games)</button>
+    </div>
+    <div id="load-result" style="margin-top: 10px; color: #7f8c8d;"></div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 800px;">
+    
+    <!-- Склады -->
+    <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px;">
+        <h3>Склады</h3>
+        <ul style="list-style: none; padding: 0;">
+            {% for wh in warehouses %}
+            <li style="padding: 8px 0; border-bottom: 1px solid #eee;">
+                <strong>{{ wh['name'] }}</strong>
+                <span style="color: #7f8c8d; font-size: 12px;">(id={{ wh['id'] }})</span>
+            </li>
+            {% endfor %}
+        </ul>
+        <p style="color: #7f8c8d; font-size: 12px;">Редактирование названий — в разработке.</p>
+    </div>
+
+    <!-- Платформы -->
+    <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px;">
+        <h3>Платформы</h3>
+        <ul style="list-style: none; padding: 0; max-height: 200px; overflow-y: auto;">
+            {% for p in platforms %}
+            <li style="padding: 4px 0; border-bottom: 1px solid #eee;">
+                {{ p['platformName'] }} {{ p['platformVersion'] }}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <!-- Издания -->
+    <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px;">
+        <h3>Издания</h3>
+        <ul style="list-style: none; padding: 0;">
+            {% for e in editions %}
+            <li style="padding: 4px 0; border-bottom: 1px solid #eee;">{{ e['editionName'] }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <!-- Издатели -->
+    <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px;">
+        <h3>Издатели</h3>
+        <ul style="list-style: none; padding: 0; max-height: 200px; overflow-y: auto;">
+            {% for p in publishers %}
+            <li style="padding: 4px 0; border-bottom: 1px solid #eee;">{{ p['publisherName'] }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <!-- Регионы -->
+    <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px;">
+        <h3>Регионы</h3>
+        <ul style="list-style: none; padding: 0;">
+            {% for r in regions %}
+            <li style="padding: 4px 0; border-bottom: 1px solid #eee;">{{ r['regionCode'] }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+
+</div>
+
+<script>
+    let pollInterval = null;
+
+    function loadProducts(storeCode) {
+        const modal = document.createElement('div');
+        modal.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:1000;';
+        modal.innerHTML = `
+            <div style="background:white; padding:24px; border-radius:8px; max-width:400px; text-align:center;">
+                <h3 style="margin-top:0;">Подтверждение</h3>
+                <p>Загрузить карточки для <strong>${storeCode}</strong>?</p>
+                <div style="display:flex; gap:10px; justify-content:center; margin-top:20px;">
+                    <button onclick="this.closest('div').parentElement.remove(); startLoad('${storeCode}');" class="btn-primary" style="background:#27ae60; padding:10px 20px; border:none; border-radius:4px; color:white; font-weight:bold; cursor:pointer;">Да</button>
+                    <button onclick="this.closest('div').parentElement.remove();" class="btn-primary" style="background:#95a5a6; padding:10px 20px; border:none; border-radius:4px; color:white; font-weight:bold; cursor:pointer;">Нет</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    function startLoad(storeCode) {
+        const resultDiv = document.getElementById('load-result');
+        resultDiv.textContent = 'Загрузка запущена...';
+        resultDiv.style.color = '#7f8c8d';
+        
+        fetch(`/settings/load_products?store_code=${storeCode}`, {
+            method: 'POST'
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.ok) {
+                resultDiv.textContent = data.message;
+                resultDiv.style.color = '#27ae60';
+                
+                if (pollInterval) clearInterval(pollInterval);
+                pollInterval = setInterval(checkStatus, 3000);
+            } else {
+                resultDiv.textContent = 'Ошибка: ' + data.error;
+                resultDiv.style.color = '#e74c3c';
+            }
+        })
+        .catch(err => {
+            resultDiv.textContent = 'Ошибка сети: ' + err.message;
+            resultDiv.style.color = '#e74c3c';
+        });
+    }
+
+    function checkStatus() {
+        fetch('/settings/load_status')
+        .then(res => res.json())
+        .then(data => {
+            const resultDiv = document.getElementById('load-result');
+            if (data.ok && data.status === 'completed') {
+                resultDiv.textContent = 'Загрузка завершена! Файл: ' + data.file;
+                resultDiv.style.color = '#27ae60';
+                if (pollInterval) clearInterval(pollInterval);
+                setTimeout(() => location.reload(), 2000);
+            } else if (data.ok && data.status === 'in_progress') {
+                resultDiv.textContent = 'Загрузка идёт... (файл: ' + data.file + ')';
+                resultDiv.style.color = '#f39c12';
+            } else {
+                resultDiv.textContent = 'Ошибка: ' + (data.error || 'неизвестная');
+                resultDiv.style.color = '#e74c3c';
+                if (pollInterval) clearInterval(pollInterval);
+            }
+        })
+        .catch(err => {
+            console.error('Ошибка опроса:', err);
+        });
+    }
+</script>
+{% endblock %}

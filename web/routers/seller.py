@@ -19,10 +19,12 @@ def seller_dashboard(request: Request):
         rows = conn.execute("""
             SELECT p.id, p.offer_id, p.baseGameName AS name, p.platform, p.edition,
                    COALESCE(NULLIF(l.price, 0), (SELECT pi.price FROM posting_item pi JOIN posting po ON po.id = pi.posting_id WHERE pi.product_id = p.id AND pi.price > 0 ORDER BY po.created_at DESC, po.id DESC LIMIT 1)) AS final_price,
-                   COALESCE(sm.quantity, 0) AS quantity
+                   COALESCE(sm.quantity, 0) AS quantity,
+                   w.name AS warehouse_name
             FROM product p
             LEFT JOIN listing l ON l.product_id = p.id AND l.store_id = 1
             LEFT JOIN stock_manual sm ON sm.product_id = p.id
+            LEFT JOIN warehouse w ON w.id = l.warehouse_id
             ORDER BY p.baseGameName ASC LIMIT 500
         """).fetchall()
         platforms = sorted(list({r["platform"] for r in rows if r["platform"]}))
@@ -55,11 +57,7 @@ def manual_sale_save(
             return JSONResponse({"ok": False, "error": "Недостаточно остатка", "redirect": "/keeper/inventory"}, status_code=400)
 
         store_row = conn.execute("SELECT id FROM store WHERE code = 'manual'").fetchone()
-        if not store_row:
-            cur_s = conn.execute("INSERT INTO store (code, name, has_api, is_active) VALUES ('manual', 'Ручная продажа', 0, 1)")
-            store_id = cur_s.lastrowid
-        else:
-            store_id = store_row["id"]
+        store_id = store_row["id"]
 
         buyer_row = conn.execute("SELECT buyerId FROM buyer WHERE buyerNickname = ?", (buyer_nickname,)).fetchone()
         if buyer_row:
@@ -112,7 +110,6 @@ def sync_ozon_page(request: Request):
 
 @router.post("/sync_ozon")
 def sync_ozon_start(date_from: str = Form(...), date_to: str = Form(...)):
-    # 1. Получаем магазины с API
     stores = []
     with get_conn() as conn:
         stores = conn.execute("SELECT code, name, client_id, api_key FROM store WHERE has_api = 1").fetchall()
@@ -124,18 +121,15 @@ def sync_ozon_start(date_from: str = Form(...), date_to: str = Form(...)):
     
     for store in stores:
         try:
-            # 2. Подключаемся к OZON
             store_config = get_store("ozon", store["code"])
             client = OzonClient(store_config)
             
-            # 3. Запрашиваем отправления за период
             since = f"{date_from}T00:00:00Z"
             to = f"{date_to}T23:59:59Z"
             
             with get_conn() as conn:
                 store_id_db = conn.execute("SELECT id FROM store WHERE code = ?", (store["code"],)).fetchone()["id"]
                 
-                # Тянем постранично
                 cursor = ""
                 while True:
                     payload = {
@@ -156,43 +150,35 @@ def sync_ozon_start(date_from: str = Form(...), date_to: str = Form(...)):
                         if not posting_number:
                             continue
                             
-                        # Проверяем, нет ли уже такого отправления
                         existing = conn.execute("SELECT id FROM posting WHERE posting_number = ?", (posting_number,)).fetchone()
                         if existing:
-                            continue # Уже загружен
+                            continue
                             
-                        # OZON отдает дату в in_process_at (начало сборки) или shipment_date
                         created_at = p.get("in_process_at", "")[:10]
                         if not created_at:
                             created_at = p.get("shipment_date", "")[:10]
                         if not created_at:
-                            created_at = date.today().isoformat() # Если совсем пусто - ставим сегодня
+                            created_at = date.today().isoformat()
                         
-                        # Покупатель (из OZON, если есть, иначе Физлицо)
-                        # В OZON v4 нет прямого поля buyer, поэтому ставим Физлицо
                         buyer_nickname = "Физлицо"
                         buyer_row = conn.execute("SELECT buyerId FROM buyer WHERE buyerNickname = ?", (buyer_nickname,)).fetchone()
                         buyer_id = buyer_row["buyerId"] if buyer_row else 1
                         
-                        # Вставляем posting
                         cur = conn.execute("""
                             INSERT INTO posting(posting_number, store_id, status, created_at, source, buyer_id, buyer_nickname, is_preorder)
                             VALUES(?, ?, ?, ?, 'ozon', ?, ?, 0)
                         """, (posting_number, store_id_db, p.get("status"), created_at, buyer_id, buyer_nickname))
                         posting_id = cur.lastrowid
                         
-                        # Вставляем позиции
                         for prod in p.get("products", []):
                             offer_id = prod.get("offer_id")
                             product_row = conn.execute("SELECT id FROM product WHERE offer_id = ?", (offer_id,)).fetchone()
                             product_id = product_row["id"] if product_row else None
                             
-                            # Проверка остатка для preorder
                             stock_row = conn.execute("SELECT quantity FROM stock_manual WHERE product_id = ?", (product_id,)).fetchone()
                             stock_qty = stock_row["quantity"] if stock_row else 0
                             is_preorder = 1 if stock_qty <= 0 else 0
                             
-                            # Если preorder, обновляем флаг в posting
                             if is_preorder:
                                 conn.execute("UPDATE posting SET is_preorder = 1 WHERE id = ?", (posting_id,))
                             
@@ -203,7 +189,6 @@ def sync_ozon_start(date_from: str = Form(...), date_to: str = Form(...)):
                                 price_val = float(raw_price or 0)
                                 
                             sku = str(prod.get("sku", "") or "")
-                            
                             conn.execute("""
                                 INSERT INTO posting_item(posting_id, product_id, offer_id, sku, quantity, price, currency)
                                 VALUES(?, ?, ?, ?, ?, ?, 'RUB')
@@ -211,7 +196,6 @@ def sync_ozon_start(date_from: str = Form(...), date_to: str = Form(...)):
                             
                             total_items += 1
                     
-                    # Пагинация
                     cursor = data.get("cursor", "")
                     if not data.get("has_next") or not cursor:
                         break
@@ -221,7 +205,6 @@ def sync_ozon_start(date_from: str = Form(...), date_to: str = Form(...)):
         except Exception as e:
             return JSONResponse({"ok": False, "error": f"Ошибка магазина {store['name']}: {str(e)}"})
 
-    # 4. Сохраняем лог синхронизации
     with get_conn() as conn:
         conn.execute("""
             INSERT INTO sync_log(sync_type, date_from, date_to, records_count)
@@ -231,6 +214,7 @@ def sync_ozon_start(date_from: str = Form(...), date_to: str = Form(...)):
 
     return JSONResponse({"ok": True, "message": f"Загружено позиций: {total_items}"})
 
+# --- ТОВАРЫ ПОД ЗАКАЗ ---
 @router.get("/preorders", response_class=HTMLResponse)
 def preorders_list(request: Request):
     with get_conn() as conn:
@@ -241,20 +225,16 @@ def preorders_list(request: Request):
                 po.status, 
                 po.is_preorder,
                 s.name AS store_name,
-                'OZON' AS marketplace,
                 pi.quantity, 
                 pi.price, 
                 pi.offer_id,
                 pi.sku,
                 p.baseGameName AS name, 
-                p.platform,
-                w.name AS warehouse_name
+                p.platform
             FROM posting po
             JOIN posting_item pi ON pi.posting_id = po.id
             JOIN product p ON p.id = pi.product_id
             JOIN store s ON s.id = po.store_id
-            LEFT JOIN listing l ON l.product_id = p.id AND l.store_id = po.store_id
-            LEFT JOIN warehouse w ON w.id = l.warehouse_id
             WHERE po.is_preorder = 1 AND po.status != 'cancelled'
             ORDER BY s.name, po.created_at, po.posting_number, pi.sku
         """).fetchall()
