@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Request, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from typing import List, Optional
 from pydantic import BaseModel
 import time
 import shutil
 import difflib
+import json
 from pathlib import Path
 from src.db import get_conn
 
@@ -21,6 +22,10 @@ class StockInlineUpdate(BaseModel):
     product_id: int
     quantity: int
 
+class WarehouseUpdate(BaseModel):
+    product_id: int
+    warehouse_id: int
+
 class CheckDuplicatesReq(BaseModel):
     gameName: str
     platformName: str
@@ -29,8 +34,7 @@ class CheckDuplicatesReq(BaseModel):
     regionId: Optional[str] = None
     publisherId: Optional[str] = None
     exclude_id: Optional[int] = None
-    restore: Optional[int] = 0 
-
+    restore: Optional[int] = 0
 
 @router.get("/", response_class=HTMLResponse)
 def keeper_menu(request: Request):
@@ -41,13 +45,20 @@ def keeper_inventory(request: Request):
     with get_conn() as conn:
         rows = conn.execute("""
             SELECT p.id, p.offer_id, p.baseGameName AS name, p.platform,
-                   COALESCE(sm.quantity, 0) AS physical_qty
+                   COALESCE(sm.quantity, 0) AS physical_qty,
+                   l.warehouse_id,
+                   w.name AS warehouse_name
             FROM product p
             LEFT JOIN stock_manual sm ON sm.product_id = p.id
+            LEFT JOIN listing l ON l.product_id = p.id AND l.store_id = 1
+            LEFT JOIN warehouse w ON w.id = l.warehouse_id
             ORDER BY p.baseGameName ASC LIMIT 500
         """).fetchall()
         platforms = sorted(list({r["platform"] for r in rows if r["platform"]}))
-    return templates.TemplateResponse(request, "keeper_inventory.html", {"rows": rows, "platforms": platforms})
+        warehouses = conn.execute("SELECT id, name FROM warehouse WHERE is_active = 1").fetchall()
+    return templates.TemplateResponse(request, "keeper_inventory.html", {
+        "rows": rows, "platforms": platforms, "warehouses": warehouses
+    })
 
 @router.post("/inventory/bulk_save")
 def bulk_save_stock(items: List[StockItem]):
@@ -72,7 +83,16 @@ def update_stock_inline(data: StockInlineUpdate):
         conn.commit()
     return {"ok": True}
 
-# --- УПРАВЛЕНИЕ ТОВАРАМИ ---
+@router.post("/update_warehouse_inline")
+def update_warehouse_inline(data: WarehouseUpdate):
+    with get_conn() as conn:
+        # Обновляем склад в листинге (store_id=1)
+        conn.execute("""
+            UPDATE listing SET warehouse_id = ? WHERE product_id = ? AND store_id = 1
+        """, (data.warehouse_id, data.product_id))
+        conn.commit()
+    return {"ok": True}
+
 @router.get("/manage_products", response_class=HTMLResponse)
 def manage_products(request: Request):
     with get_conn() as conn:
@@ -82,35 +102,51 @@ def manage_products(request: Request):
                    r.regionCode AS region,
                    p.cost_price_synthetic AS cost_price,
                    l.price AS ozon_price,
-                   COALESCE(sm.quantity, 0) AS quantity
+                   COALESCE(sm.quantity, 0) AS quantity,
+                   l.warehouse_id,
+                   w.name AS warehouse_name
             FROM product p
             LEFT JOIN regions r ON r.regionId = p.regionId
             LEFT JOIN listing l ON l.product_id = p.id AND l.store_id = 1
             LEFT JOIN stock_manual sm ON sm.product_id = p.id
+            LEFT JOIN warehouse w ON w.id = l.warehouse_id
             ORDER BY p.baseGameName ASC LIMIT 500
         """).fetchall()
         platforms = sorted(list({r["platform"] for r in rows if r["platform"]}))
         editions = sorted(list({r["edition"] for r in rows if r["edition"]}))
         regions = sorted(list({r["region"] for r in rows if r["region"]}))
         publishers = sorted(list({r["publisher"] for r in rows if r["publisher"]}))
+        warehouses = conn.execute("SELECT id, name FROM warehouse WHERE is_active = 1").fetchall()
     return templates.TemplateResponse(request, "manage_products.html", {
-        "rows": rows, "platforms": platforms, "editions": editions, "regions": regions, "publishers": publishers
+        "rows": rows, "platforms": platforms, "editions": editions, "regions": regions,
+        "publishers": publishers, "warehouses": warehouses
     })
 
-# --- ДОБАВЛЕНИЕ / КОПИРОВАНИЕ / РЕДАКТИРОВАНИЕ ---
+@router.post("/delete_product/{product_id}")
+def delete_product(product_id: int):
+    with get_conn() as conn:
+        # Проверяем, есть ли продажи
+        sales = conn.execute("SELECT COUNT(*) FROM posting_item WHERE product_id = ?", (product_id,)).fetchone()[0]
+        if sales > 0:
+            return JSONResponse({"ok": False, "error": "Нельзя удалить: есть история продаж"}, status_code=400)
+        
+        conn.execute("DELETE FROM listing WHERE product_id = ?", (product_id,))
+        conn.execute("DELETE FROM stock_manual WHERE product_id = ?", (product_id,))
+        conn.execute("DELETE FROM product WHERE id = ?", (product_id,))
+        conn.commit()
+    return JSONResponse({"ok": True})
 
 def _get_dictionaries(conn):
-    # Добавляем все платформы из товаров (включая составные PS4/PS5)
     all_db_platforms = conn.execute('SELECT DISTINCT platform FROM product WHERE platform IS NOT NULL').fetchall()
-    
     return {
         "typeGoods": conn.execute('SELECT "typeGoodId", "typeGoodName" FROM "typeGoods" ORDER BY "sortOrder"').fetchall(),
-        "platforms": conn.execute('SELECT "platformId", "platformName", "platformVersion" FROM platforms ORDER BY "sortOrder"').fetchall(),
+        "platforms": conn.execute('SELECT "platformId", "platformName", "platformVersion", "revision", "is_portable" FROM platforms ORDER BY "sortOrder"').fetchall(),
         "editions": conn.execute('SELECT "editionId", "editionName" FROM "editionTypes" ORDER BY "sortOrder"').fetchall(),
         "regions": conn.execute('SELECT "regionId", "regionCode" FROM regions ORDER BY "sortOrder"').fetchall(),
         "publishers": conn.execute('SELECT "publisherId", "publisherName" FROM publishers ORDER BY "publisherName"').fetchall(),
         "games": conn.execute('SELECT DISTINCT "baseGameName" FROM product WHERE "baseGameName" IS NOT NULL').fetchall(),
-        "all_db_platforms": [r["platform"] for r in all_db_platforms]
+        "all_db_platforms": [r["platform"] for r in all_db_platforms],
+        "warehouses": conn.execute("SELECT id, name FROM warehouse WHERE is_active = 1").fetchall()
     }
 
 @router.get("/add_product", response_class=HTMLResponse)
@@ -140,7 +176,6 @@ def edit_product_page(request: Request, product_id: int):
     ctx.update({"product": prod, "quantity": stock["quantity"] if stock else 0, "mode": "edit"})
     return templates.TemplateResponse(request, "add_product.html", ctx)
 
-# --- ПРОВЕРКА ДУБЛЕЙ ---
 @router.post("/check_duplicates")
 def check_duplicates(data: CheckDuplicatesReq):
     with get_conn() as conn:
@@ -149,7 +184,6 @@ def check_duplicates(data: CheckDuplicatesReq):
         ed_name = conn.execute('SELECT "editionName" FROM "editionTypes" WHERE "editionId" = ?', (data.editionId,)).fetchone()["editionName"] if data.editionId and data.editionId != "None" else None
         pub_name = conn.execute('SELECT "publisherName" FROM publishers WHERE "publisherId" = ?', (data.publisherId,)).fetchone()["publisherName"] if data.publisherId and data.publisherId != "None" else None
 
-        # Ищем по платформе, исключая текущий ID (если редактируем)
         query = """
             SELECT p.id, p.baseGameName, p.platform, p.edition, p.publisher, 
                    p.restore,
@@ -174,10 +208,7 @@ def check_duplicates(data: CheckDuplicatesReq):
             ed_match = (row["edition"] == ed_name) if ed_name else True
             pub_match = (row["publisher"] == pub_name) if pub_name else True
             
-            # Учет restore (0 = обычный, 1 = лицензия)
-            restore_match = (row["restore"] or 0) == (data.restore or 0)
-            
-            if ratio >= 0.8 and ed_match and pub_match and restore_match:
+            if ratio >= 0.8 and ed_match and pub_match:
                 matches.append({
                     "id": row["id"], "name": row["baseGameName"], "platform": row["platform"],
                     "edition": row["edition"], "publisher": row["publisher"], "region": row["region"],
@@ -187,14 +218,14 @@ def check_duplicates(data: CheckDuplicatesReq):
         matches.sort(key=lambda x: x["score"], reverse=True)
         return {"ok": True, "matches": matches}
 
-# --- СОХРАНЕНИЕ ТОВАРА ---
 @router.post("/save_product")
 def save_product(
     mode: str = Form(...), product_id: str = Form(None),
     typeGoodId: str = Form(...), platformName: str = Form(...), platformVersion: str = Form(None),
     gameName: str = Form(...), editionId: str = Form(None), regionId: str = Form(None),
     publisherId: str = Form(None), firstReleaseYear: str = Form(None), audience: str = Form(None),
-    priceRub: str = Form("0"), quantity: str = Form("0")
+    priceRub: str = Form("0"), quantity: str = Form("0"), restore: str = Form("0"),
+    warehouse_id: str = Form(None)
 ):
     def to_int(val): 
         if not val or str(val).strip() in ("", "None"): return None
@@ -212,8 +243,12 @@ def save_product(
         except ValueError: pass
 
     with get_conn() as conn:
-        wh_row = conn.execute("SELECT id FROM warehouse LIMIT 1").fetchone()
-        warehouse_id = wh_row["id"] if wh_row else 1
+        # Склад: если передан, используем, иначе первый
+        if warehouse_id and str(warehouse_id).strip() not in ("", "None"):
+            wh_id = to_int(warehouse_id)
+        else:
+            wh_row = conn.execute("SELECT id FROM warehouse LIMIT 1").fetchone()
+            wh_id = wh_row["id"] if wh_row else 1
 
         ed_row = conn.execute('SELECT "editionName" FROM "editionTypes" WHERE "editionId" = ?', (editionId,)).fetchone() if editionId and str(editionId) != "None" else None
         pub_row = conn.execute('SELECT "publisherName" FROM publishers WHERE "publisherId" = ?', (publisherId,)).fetchone() if publisherId and str(publisherId) != "None" else None
@@ -224,30 +259,33 @@ def save_product(
         full_platform = f"{platformName} {platformVersion or ''}".strip()
         full_name = f"{gameName} {ed_name or ''} ({full_platform})".strip()
         
+        platform_list = [p.strip() for p in full_platform.split('/')]
+        platform_set_json = json.dumps(platform_list, ensure_ascii=False)
+        restore_val = to_int(restore) or 0
+
         if mode == "edit" and pid:
             conn.execute("""
-                UPDATE product SET name=?, baseGameName=?, product_type=?, platform=?, edition=?, publisher=?, regionId=?, release_year=?, age_rating=?, cost_price_synthetic=? WHERE id=?
-            """, (full_name, gameName, typeGoodId, full_platform, ed_name, pub_name, to_int(regionId), to_int(firstReleaseYear), audience or None, to_float(priceRub), pid))
-            conn.execute("UPDATE listing SET price = ? WHERE product_id = ?", (to_float(priceRub), pid))
+                UPDATE product SET name=?, baseGameName=?, product_type=?, platform=?, platform_set=?, edition=?, publisher=?, regionId=?, release_year=?, age_rating=?, cost_price_synthetic=?, restore=? WHERE id=?
+            """, (full_name, gameName, typeGoodId, full_platform, platform_set_json, ed_name, pub_name, to_int(regionId), to_int(firstReleaseYear), audience or None, to_float(priceRub), restore_val, pid))
+            conn.execute("UPDATE listing SET price = ?, warehouse_id = ? WHERE product_id = ?", (to_float(priceRub), wh_id, pid))
             conn.execute("INSERT INTO stock_manual (product_id, quantity) VALUES (?, ?) ON CONFLICT(product_id) DO UPDATE SET quantity = excluded.quantity", (pid, to_int(quantity) or 0))
         else:
             offer_id = f"new_{int(time.time())}"
             cur = conn.execute("""
-                INSERT INTO product (offer_id, name, baseGameName, product_type, platform, edition, age_rating, publisher, release_year, cost_price_synthetic, is_active) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-            """, (offer_id, full_name, gameName, typeGoodId, full_platform, ed_name, to_int(audience), pub_name, to_int(firstReleaseYear), to_float(priceRub)))
+                INSERT INTO product (offer_id, name, baseGameName, product_type, platform, platform_set, edition, age_rating, publisher, release_year, cost_price_synthetic, restore, is_active) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+            """, (offer_id, full_name, gameName, typeGoodId, full_platform, platform_set_json, ed_name, to_int(audience), pub_name, to_int(firstReleaseYear), to_float(priceRub), restore_val))
             pid = cur.lastrowid
             
             conn.execute("""
                 INSERT INTO listing (store_id, product_id, warehouse_id, price, status) 
                 VALUES (1, ?, ?, ?, 'draft')
-            """, (pid, warehouse_id, to_float(priceRub)))
+            """, (pid, wh_id, to_float(priceRub)))
             
             conn.execute('INSERT INTO stock_manual (product_id, quantity) VALUES (?, ?)', (pid, to_int(quantity) or 0))
         conn.commit()
     return RedirectResponse("/keeper/manage_products?ok=Сохранено", status_code=303)
 
-# --- БЭКАП ---
 @router.get("/backup")
 def download_backup():
     db_path = Path("db/only_limited.sqlite3")
@@ -263,3 +301,12 @@ async def restore_backup(file: UploadFile = File(...)):
     with open("db/only_limited.sqlite3", "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     return RedirectResponse("/keeper?ok=База восстановлена", status_code=303)
+
+@router.post("/add_warehouse")
+def add_warehouse(name: str = Form(...)):
+    with get_conn() as conn:
+        cur = conn.execute("INSERT INTO warehouse (code, name, default_currency, is_active) VALUES (?, ?, 'RUB', 1)", 
+                          (f"wh_{int(time.time())}", name))
+        conn.commit()
+        new_id = cur.lastrowid
+    return JSONResponse({"ok": True, "id": new_id, "name": name})

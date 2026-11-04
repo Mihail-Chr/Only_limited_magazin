@@ -16,11 +16,14 @@
 
     <div class="form-group">
         <label>Тип товара:</label>
-        <select name="typeGoodId" required>
-            {% for t in typeGoods %}
-            <option value="{{ t['typeGoodName'] }}" {% if product and t['typeGoodName'] == product['product_type'] %}selected{% endif %}>{{ t['typeGoodName'] }}</option>
-            {% endfor %}
-        </select>
+        <div style="display:flex; gap:6px;">
+            <select name="typeGoodId" required style="flex: 1;">
+                {% for t in typeGoods %}
+                <option value="{{ t['typeGoodName'] }}" {% if product and t['typeGoodName'] == product['product_type'] %}selected{% endif %}>{{ t['typeGoodName'] }}</option>
+                {% endfor %}
+            </select>
+            <button type="button" class="btn-small" onclick="openModal('modal-type')">+</button>
+        </div>
     </div>
 
     <div class="form-group">
@@ -39,28 +42,32 @@
             <select name="platformVersion" id="platformVersion" required style="flex: 1;">
                 <option value="">-- Версия --</option>
             </select>
+            <button type="button" class="btn-small" onclick="openModal('modal-platform')">+</button>
         </div>
     </div>
 
     <div class="form-group">
         <label>Название игры:</label>
-        <input type="text" name="gameName" id="gameName" value="{{ product['baseGameName'] if product else '' }}" list="game-names" required>
+        <input type="text" name="gameName" value="{{ product['baseGameName'] if product else '' }}" list="game-names" required>
         <datalist id="game-names">{% for g in games %}<option value="{{ g['baseGameName'] }}">{% endfor %}</datalist>
     </div>
 
     <div class="form-group">
         <label>Издание:</label>
-        <select name="editionId" id="editionId">
-            <option value="">— Без издания —</option>
-            {% for e in editions %}
-            <option value="{{ e['editionId'] }}" {% if product and e['editionName'] == product['edition'] %}selected{% endif %}>{{ e['editionName'] }}</option>
-            {% endfor %}
-        </select>
+        <div style="display:flex; gap:6px;">
+            <select name="editionId" style="flex: 1;">
+                <option value="">— Без издания —</option>
+                {% for e in editions %}
+                <option value="{{ e['editionId'] }}" {% if product and e['editionName'] == product['edition'] %}selected{% endif %}>{{ e['editionName'] }}</option>
+                {% endfor %}
+            </select>
+            <button type="button" class="btn-small" onclick="openModal('modal-edition')">+</button>
+        </div>
     </div>
 
     <div class="form-group">
         <label>Регион:</label>
-        <select name="regionId" id="regionId">
+        <select name="regionId" style="width: 100%; max-width: 400px; padding: 8px;">
             <option value="">— Без региона —</option>
             {% for r in regions %}
             <option value="{{ r['regionId'] }}" {% if product and r['regionId'] == product['regionId'] %}selected{% endif %}>{{ r['regionCode'] }}</option>
@@ -70,12 +77,15 @@
 
     <div class="form-group">
         <label>Издатель:</label>
-        <select name="publisherId" id="publisherId">
-            <option value="">— Без издателя —</option>
-            {% for p in publishers %}
-            <option value="{{ p['publisherId'] }}" {% if product and p['publisherName'] == product['publisher'] %}selected{% endif %}>{{ p['publisherName'] }}</option>
-            {% endfor %}
-        </select>
+        <div style="display:flex; gap:6px;">
+            <select name="publisherId" style="flex: 1;">
+                <option value="">— Без издателя —</option>
+                {% for p in publishers %}
+                <option value="{{ p['publisherId'] }}" {% if product and p['publisherName'] == product['publisher'] %}selected{% endif %}>{{ p['publisherName'] }}</option>
+                {% endfor %}
+            </select>
+            <button type="button" class="btn-small" onclick="openModal('modal-publisher')">+</button>
+        </div>
     </div>
 
     <div class="form-group">
@@ -85,7 +95,7 @@
 
     <div class="form-group">
         <label>Возрастной рейтинг:</label>
-        <select name="audience">
+        <select name="audience" style="width: 100%; max-width: 400px; padding: 8px;">
             <option value="">Не указан</option>
             {% for a in ['0','6','12','16','18'] %}
             <option value="{{ a }}" {% if product and product['age_rating'] == a %}selected{% endif %}>{{ a }}+</option>
@@ -103,30 +113,89 @@
         <input type="text" id="quantity" name="quantity" value="{{ quantity }}" maxlength="3">
     </div>
 
-    <button type="submit" id="save-btn" class="btn-primary" style="background: #27ae60; padding: 12px 24px; border-radius: 4px; border: none; color: white; cursor: pointer; font-weight: bold; margin-top: 10px;">💾 Сохранить</button>
+    <div class="form-group">
+        <label>Склад:</label>
+        <div style="display:flex; gap:6px;">
+            <select name="warehouse_id" id="warehouse_id" required style="flex: 1;">
+                {% for wh in warehouses %}
+                <option value="{{ wh['id'] }}" {% if product and wh['id'] == product['warehouse_id'] %}selected{% endif %}>{{ wh['name'] }}</option>
+                {% endfor %}
+            </select>
+            <button type="button" class="btn-small" onclick="openModal('modal-warehouse')">+</button>
+        </div>
+    </div>
+
+    <button type="submit" class="btn-primary" style="background: #27ae60; padding: 12px 24px; border-radius: 4px; border: none; color: white; cursor: pointer; font-weight: bold; margin-top: 10px;">💾 Сохранить</button>
 </form>
 
-<!-- Модальное окно дублей -->
-<div id="duplicates-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
-    <div style="background:white; padding:20px; border-radius:8px; max-width:800px; width:90%; max-height:80vh; overflow-y:auto;">
-        <h3 style="margin-top:0; color:#e74c3c;">⚠️ Найдены похожие товары!</h3>
-        <p>Проверьте, возможно, вы пытаетесь сохранить дубль.</p>
-        <table style="width:100%; border-collapse:collapse; margin-top:15px; font-size:14px;">
-            <thead>
-                <tr style="background:#f8f9fa;">
-                    <th style="padding:8px; text-align:left; border-bottom:1px solid #ddd;">Совпадение</th>
-                    <th style="padding:8px; text-align:left; border-bottom:1px solid #ddd;">Название</th>
-                    <th style="padding:8px; text-align:left; border-bottom:1px solid #ddd;">Платформа</th>
-                    <th style="padding:8px; text-align:left; border-bottom:1px solid #ddd;">Остаток</th>
-                    <th style="padding:8px; text-align:center; border-bottom:1px solid #ddd;">Действие</th>
-                </tr>
-            </thead>
-            <tbody id="duplicates-tbody"></tbody>
-        </table>
-        <div style="margin-top:20px; text-align:right; display:flex; gap:10px; justify-content:flex-end;">
-            <button type="button" onclick="document.getElementById('duplicates-modal').style.display='none';" style="background:#95a5a6; color:white; padding:10px 20px; border:none; border-radius:4px; cursor:pointer;">Отмена</button>
-            <button type="button" id="force-save-btn" style="background:#e74c3c; color:white; padding:10px 20px; border:none; border-radius:4px; cursor:pointer;">Всё равно сохранить</button>
-        </div>
+<!-- Модальное окно для склада -->
+<div id="modal-warehouse" class="modal" style="display:none;">
+    <div class="modal-content">
+        <h3>Новый склад</h3>
+        <form id="warehouse-form">
+            <input type="text" name="name" placeholder="Название склада" required>
+            <div class="modal-actions">
+                <button type="button" class="btn-primary" onclick="addWarehouse()">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="document.getElementById('modal-warehouse').style.display='none'">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Модальное окно для типа товара -->
+<div id="modal-type" class="modal" style="display:none;">
+    <div class="modal-content">
+        <h3>Новый тип товара</h3>
+        <form method="post" action="/api/add_type" autocomplete="off">
+            <input type="text" name="new_type_name" placeholder="Например: steelbook" required>
+            <div class="modal-actions">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="document.getElementById('modal-type').style.display='none'">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Модальное окно для издания -->
+<div id="modal-edition" class="modal" style="display:none;">
+    <div class="modal-content">
+        <h3>Новое издание</h3>
+        <form method="post" action="/api/add_edition" autocomplete="off">
+            <input type="text" name="new_type_name" placeholder="Например: Anniversary Edition" required>
+            <div class="modal-actions">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="document.getElementById('modal-edition').style.display='none'">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Модальное окно для издателя -->
+<div id="modal-publisher" class="modal" style="display:none;">
+    <div class="modal-content">
+        <h3>Новый издатель</h3>
+        <form method="post" action="/api/add_publisher" autocomplete="off">
+            <input type="text" name="new_type_name" placeholder="Например: Limited Run Games" required>
+            <div class="modal-actions">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="document.getElementById('modal-publisher').style.display='none'">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Модальное окно для платформы -->
+<div id="modal-platform" class="modal" style="display:none;">
+    <div class="modal-content">
+        <h3>Новая платформа</h3>
+        <form method="post" action="/api/add_platform" autocomplete="off">
+            <input type="text" id="new-platform-name" name="platformName" placeholder="Название (например, PlayStation)" required>
+            <input type="text" id="new-platform-version" name="platformVersion" placeholder="Версия (например, 4, 5, Mega Drive)" required>
+            <div class="modal-actions">
+                <button type="submit" class="btn-primary">Сохранить</button>
+                <button type="button" class="btn-secondary" onclick="document.getElementById('modal-platform').style.display='none'">Отмена</button>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -134,117 +203,82 @@
     .form-group { margin-bottom: 16px; max-width: 400px; }
     .form-group label { display: block; font-weight: bold; margin-bottom: 4px; }
     .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+    .btn-small { background: #3498db; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    .btn-small:hover { background: #2980b9; }
+    .modal {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;
+    }
+    .modal-content {
+        background: white; padding: 24px; border-radius: 8px; min-width: 300px;
+    }
+    .modal-content h3 { margin-top: 0; }
+    .modal-content input { width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #ccc; border-radius: 4px; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .btn-secondary { background: #95a5a6; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
 </style>
 
 <script>
-    // Собираем все возможные версии платформ из БД + стандартные
-    const allDbPlatforms = {{ all_db_platforms|tojson }};
-    const standardPlatforms = [{% for p in platforms %}{ name: "{{ p['platformName'] }}", version: "{{ p['platformVersion'] }}" },{% endfor %}];
+    const allPlatforms = [{% for p in platforms %}{ name: "{{ p['platformName'] }}", version: "{{ p['platformVersion'] }}" },{% endfor %}];
     
     function updateVersions() {
         const sName = document.getElementById('platformName').value;
         const vSelect = document.getElementById('platformVersion');
         vSelect.innerHTML = '<option value="">-- Версия --</option>';
         if (!sName) return;
-        
-        const versions = new Set();
-        
-        // 1. Из стандартного справочника
-        standardPlatforms.filter(p => p.name === sName).forEach(p => versions.add(p.version));
-        
-        // 2. Из существующих товаров в базе (парсим "PlayStation 4 / PlayStation 5" -> "4 / 5")
-        allDbPlatforms.forEach(fullPlatform => {
-            if (fullPlatform.startsWith(sName)) {
-                const v = fullPlatform.replace(sName, '').trim();
-                if (v) versions.add(v);
-            }
+        const filtered = allPlatforms.filter(p => p.name === sName);
+        filtered.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.version; opt.textContent = p.version;
+            vSelect.appendChild(opt);
         });
-        
-        // 3. Из текущего товара (если редактируем)
         const curP = "{{ product['platform'] if product else '' }}";
         if (curP.startsWith(sName)) {
             const v = curP.replace(sName, '').trim();
-            if (v) versions.add(v);
-        }
-        
-        // Добавляем в селект
-        Array.from(versions).sort().forEach(v => {
-            const opt = document.createElement('option');
-            opt.value = v; opt.textContent = v;
-            vSelect.appendChild(opt);
-        });
-        
-        // Подставляем текущую версию
-        if (curP.startsWith(sName)) {
-            const v = curP.replace(sName, '').trim();
-            if (v) vSelect.value = v;
+            if (v) {
+                if (!Array.from(vSelect.options).some(o => o.value === v)) {
+                    const opt = document.createElement('option');
+                    opt.value = v; opt.textContent = v;
+                    vSelect.appendChild(opt);
+                }
+                vSelect.value = v;
+            }
+        } else if (filtered.length === 1) {
+            vSelect.value = filtered[0].version;
         }
     }
     
     document.addEventListener('DOMContentLoaded', updateVersions);
 
-    // Логика проверки дублей
-    const form = document.getElementById('product-form');
-    let bypassDuplicateCheck = false;
+    function openModal(id) {
+        document.getElementById(id).style.display = 'flex';
+    }
 
-    form.addEventListener('submit', async function(e) {
-        // Если мы уже решили сохранить принудительно
-        if (bypassDuplicateCheck) return; 
-
-        e.preventDefault(); // Всегда блокируем для проверки
-
-        const mode = document.querySelector('input[name="mode"]').value;
-        const productIdInput = document.querySelector('input[name="product_id"]');
-        const excludeId = (mode === 'edit' && productIdInput) ? parseInt(productIdInput.value) : null;
-
-        const data = {
-            gameName: document.getElementById('gameName').value,
-            platformName: document.getElementById('platformName').value,
-            platformVersion: document.getElementById('platformVersion').value,
-            editionId: document.getElementById('editionId').value,
-            regionId: document.getElementById('regionId').value,
-            publisherId: document.getElementById('publisherId').value,
-            exclude_id: excludeId,
-            restore: 0 // Пока 0, если добавим чекбокс - будем брать оттуда
-        };
-
-        try {
-            const res = await fetch('/keeper/check_duplicates', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            const json = await res.json();
-            
-            if (json.ok && json.matches && json.matches.length > 0) {
-                const tbody = document.getElementById('duplicates-tbody');
-                tbody.innerHTML = json.matches.map(m => `
-                    <tr>
-                        <td style="padding:8px; border-bottom:1px solid #eee;"><span style="color:#e74c3c; font-weight:bold;">${m.score}%</span></td>
-                        <td style="padding:8px; border-bottom:1px solid #eee;">${m.name}</td>
-                        <td style="padding:8px; border-bottom:1px solid #eee;">${m.platform}</td>
-                        <td style="padding:8px; border-bottom:1px solid #eee;">${m.quantity}</td>
-                        <td style="padding:8px; border-bottom:1px solid #eee; text-align:center;">
-                            <a href="/keeper/edit_product/${m.id}" style="background:#3498db; color:white; padding:4px 8px; text-decoration:none; border-radius:4px; font-size:12px;">Перейти к остаткам</a>
-                        </td>
-                    </tr>
-                `).join('');
-                document.getElementById('duplicates-modal').style.display = 'flex';
+    function addWarehouse() {
+        const form = document.getElementById('warehouse-form');
+        const formData = new FormData(form);
+        
+        fetch('/keeper/add_warehouse', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.ok) {
+                const select = document.getElementById('warehouse_id');
+                const option = document.createElement('option');
+                option.value = data.id;
+                option.textContent = data.name;
+                option.selected = true;
+                select.appendChild(option);
+                
+                document.getElementById('modal-warehouse').style.display = 'none';
+                form.reset();
             } else {
-                // Дублей нет - отправляем форму
-                bypassDuplicateCheck = true;
-                form.submit();
+                alert('Ошибка создания склада');
             }
-        } catch (err) {
-            alert('Ошибка при проверке дублей: ' + err.message);
-            bypassDuplicateCheck = true;
-            form.submit();
-        }
-    });
-
-    document.getElementById('force-save-btn').addEventListener('click', function() {
-        bypassDuplicateCheck = true;
-        form.submit();
-    });
+        })
+        .catch(err => alert('Ошибка сети: ' + err.message));
+    }
 </script>
 {% endblock %}

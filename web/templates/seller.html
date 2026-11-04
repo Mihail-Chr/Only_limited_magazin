@@ -19,26 +19,20 @@
     <thead>
         <tr>
             <th>Артикул</th>
-            <th onclick="sortTable(1)" style="cursor: pointer;">Наименование <span id="sort-name-icon">↕</span></th>
-            <th>
-                Платформа
-                <select id="platform-filter" onchange="applyFilters()" style="display: block; margin-top: 5px; font-size: 12px; padding: 2px; border-radius: 4px; width: 100%; max-width: 200px;">
-                    <option value="">Все платформы</option>
-                    {% for p in platforms %}
-                    <option value="{{ p }}">{{ p }}</option>
-                    {% endfor %}
-                </select>
-            </th>
+            <th onclick="toggleSort('name')" style="cursor: pointer; user-select: none;">Наименование <span id="sort-icon-name">↕</span></th>
+            <th onclick="toggleSort('platform')" style="cursor: pointer; user-select: none;">Платформа <span id="sort-icon-platform">↕</span></th>
+            <th>Склад</th>
             <th>Цена OZON <br><small style="font-weight:normal;color:#7f8c8d;">(или посл. продажа)</small></th>
             <th>Количество</th>
         </tr>
     </thead>
     <tbody>
         {% for r in rows %}
-        <tr data-platform="{{ r['platform'] or '' }}">
+        <tr data-platform="{{ r['platform'] or '' }}" data-name="{{ r['name'] or '' }}">
             <td>{{ r["offer_id"] }}</td>
             <td>{{ r["name"] }}</td>
             <td>{{ r["platform"] or "—" }}</td>
+            <td>{{ r["warehouse_name"] or "—" }}</td>
             <td class="num">{{ "%.2f"|format(r["final_price"] or 0) }} ₽</td>
             <td class="num">{{ r["quantity"] }}</td>
         </tr>
@@ -47,6 +41,69 @@
 </table>
 
 <script>
+    // Стек сортировки (приоритетная очередь): последний клик — самый главный
+    let sortStack = [];
+
+    function toggleSort(field) {
+        const existingIndex = sortStack.findIndex(item => item.field === field);
+        
+        if (existingIndex !== -1) {
+            // Поле уже в стеке
+            if (sortStack[existingIndex].direction === 1) {
+                // Если было ↑ — меняем на ↓
+                sortStack[existingIndex].direction = -1;
+            } else {
+                // Если было ↓ — удаляем из стека (снятие сортировки)
+                sortStack.splice(existingIndex, 1);
+            }
+        } else {
+            // Новое поле — добавляем в конец (последнее по приоритету)
+            sortStack.push({ field: field, direction: 1 });
+        }
+        
+        updateSortIcons();
+        applySorting();
+    }
+
+    function updateSortIcons() {
+        document.getElementById('sort-icon-name').textContent = '↕';
+        document.getElementById('sort-icon-platform').textContent = '↕';
+        
+        sortStack.forEach((item) => {
+            const icon = document.getElementById('sort-icon-' + item.field);
+            if (icon) {
+                icon.textContent = item.direction === 1 ? '↑' : '↓';
+            }
+        });
+    }
+
+    function applySorting() {
+        const tbody = document.querySelector('#seller-table tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        
+        rows.sort((a, b) => {
+            for (const item of sortStack) {
+                let valA, valB;
+                
+                if (item.field === 'name') {
+                    valA = a.dataset.name || '';
+                    valB = b.dataset.name || '';
+                } else if (item.field === 'platform') {
+                    valA = a.dataset.platform || '';
+                    valB = b.dataset.platform || '';
+                } else {
+                    continue;
+                }
+                
+                const cmp = valA.localeCompare(valB, 'ru') * item.direction;
+                if (cmp !== 0) return cmp;
+            }
+            return 0;
+        });
+        
+        rows.forEach(row => tbody.appendChild(row));
+    }
+
     function applyFilters() {
         const q = document.getElementById('search-input').value.toLowerCase().trim();
         const p = document.getElementById('platform-filter').value;
@@ -65,18 +122,10 @@
     }
     document.getElementById('search-input').addEventListener('input', applyFilters);
 
-    let sortDirection = 1;
-    function sortTable(colIdx) {
-        const tbody = document.querySelector('#seller-table tbody');
-        const rows = Array.from(tbody.querySelectorAll('tr'));
-        sortDirection *= -1;
-        rows.sort((a, b) => {
-            const valA = a.querySelector(`td:nth-child(${colIdx + 1})`).textContent.trim();
-            const valB = b.querySelector(`td:nth-child(${colIdx + 1})`).textContent.trim();
-            return valA.localeCompare(valB, 'ru') * sortDirection;
-        });
-        rows.forEach(row => tbody.appendChild(row));
-        document.getElementById('sort-name-icon').textContent = sortDirection === 1 ? '↑' : '↓';
+    // Инициализация фильтра по платформе (если есть)
+    const platformFilter = document.getElementById('platform-filter');
+    if (platformFilter) {
+        platformFilter.addEventListener('change', applyFilters);
     }
 </script>
 {% endblock %}

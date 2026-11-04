@@ -6,16 +6,8 @@
     <a href="/keeper" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #2c3e50; color: white; font-weight: bold; margin-bottom: 20px;">← Вернуться в меню</a>
 </div>
 
-<!-- Поиск и фильтр -->
-<div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
+<div style="margin-bottom: 15px;">
     <input type="text" id="search-input" placeholder="Поиск по названию или артикулу..." style="width: 100%; max-width: 400px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px;">
-    
-    <select id="platform-filter" onchange="applyFilters()" style="padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px;">
-        <option value="">Все платформы</option>
-        {% for p in platforms %}
-        <option value="{{ p }}">{{ p }}</option>
-        {% endfor %}
-    </select>
 </div>
 
 <table id="stock-table">
@@ -27,7 +19,12 @@
             </th>
             <th onclick="sortTable(2)" style="cursor: pointer; user-select: none;">
                 Платформа <span id="sort-platform-icon">↕</span>
+                <select id="platform-filter" onchange="applyFilters()" style="display: block; margin-top: 5px; font-size: 12px; padding: 2px; border-radius: 4px; width: 100%;">
+                    <option value="">Все платформы</option>
+                    {% for p in platforms %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+                </select>
             </th>
+            <th>Склад</th>
             <th>Факт. остаток</th>
         </tr>
     </thead>
@@ -38,6 +35,13 @@
             <td>{{ r["name"] }}</td>
             <td>{{ r["platform"] or "—" }}</td>
             <td>
+                <select class="warehouse-select" data-id="{{ r['id'] }}" style="padding: 4px; border: 1px solid #ccc; border-radius: 4px;">
+                    {% for wh in warehouses %}
+                    <option value="{{ wh['id'] }}" {% if wh['id'] == r['warehouse_id'] %}selected{% endif %}>{{ wh['name'] }}</option>
+                    {% endfor %}
+                </select>
+            </td>
+            <td>
                 <input type="number" class="qty-input" value="{{ r['physical_qty'] }}" min="0" style="width:90px;">
             </td>
         </tr>
@@ -46,7 +50,6 @@
 </table>
 
 <script>
-    // --- Универсальная функция фильтрации (Поиск + Платформа) ---
     function applyFilters() {
         const query = document.getElementById('search-input').value.toLowerCase().trim();
         const platformFilter = document.getElementById('platform-filter').value;
@@ -66,11 +69,30 @@
             }
         });
     }
-
-    // Привязываем поиск к универсальной функции
     document.getElementById('search-input').addEventListener('input', applyFilters);
 
-    // --- Сортировка по столбцам ---
+    // Изменение склада
+    document.querySelectorAll('.warehouse-select').forEach(select => {
+        select.addEventListener('change', async function() {
+            const productId = this.dataset.id;
+            const warehouseId = this.value;
+            try {
+                const resp = await fetch('/keeper/update_warehouse_inline', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ product_id: parseInt(productId), warehouse_id: parseInt(warehouseId) })
+                });
+                if (resp.ok) {
+                    this.style.border = '2px solid #27ae60';
+                    setTimeout(() => this.style.border = '1px solid #ccc', 1000);
+                } else {
+                    this.style.border = '2px solid #e74c3c';
+                }
+            } catch (e) {
+                this.style.border = '2px solid #e74c3c';
+            }
+        });
+    });
+
     let sortDirection = {};
     let secondarySortColumn = null;
 
