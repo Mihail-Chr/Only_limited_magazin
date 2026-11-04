@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS product (
     language            TEXT,
     view                TEXT,
     modes               TEXT,
+    restore             INTEGER DEFAULT 0,
     weight_g            INTEGER,
     width_mm            INTEGER,
     height_mm           INTEGER,

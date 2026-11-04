@@ -28,7 +28,9 @@ class CheckDuplicatesReq(BaseModel):
     editionId: Optional[str] = None
     regionId: Optional[str] = None
     publisherId: Optional[str] = None
-    exclude_id: Optional[int] = None # Для редактирования
+    exclude_id: Optional[int] = None
+    restore: Optional[int] = 0 
+
 
 @router.get("/", response_class=HTMLResponse)
 def keeper_menu(request: Request):
@@ -150,13 +152,14 @@ def check_duplicates(data: CheckDuplicatesReq):
         # Ищем по платформе, исключая текущий ID (если редактируем)
         query = """
             SELECT p.id, p.baseGameName, p.platform, p.edition, p.publisher, 
+                   p.restore,
                    r.regionCode AS region, COALESCE(sm.quantity, 0) AS quantity
             FROM product p
             LEFT JOIN regions r ON r.regionId = p.regionId
             LEFT JOIN stock_manual sm ON sm.product_id = p.id
-            WHERE p.platform = ?
+            WHERE p.platform = ? AND COALESCE(p.restore, 0) = ?
         """
-        params = [full_platform]
+        params = [full_platform, data.restore or 0]
         
         if data.exclude_id:
             query += " AND p.id != ?"
@@ -171,7 +174,10 @@ def check_duplicates(data: CheckDuplicatesReq):
             ed_match = (row["edition"] == ed_name) if ed_name else True
             pub_match = (row["publisher"] == pub_name) if pub_name else True
             
-            if ratio >= 0.8 and ed_match and pub_match:
+            # Учет restore (0 = обычный, 1 = лицензия)
+            restore_match = (row["restore"] or 0) == (data.restore or 0)
+            
+            if ratio >= 0.8 and ed_match and pub_match and restore_match:
                 matches.append({
                     "id": row["id"], "name": row["baseGameName"], "platform": row["platform"],
                     "edition": row["edition"], "publisher": row["publisher"], "region": row["region"],

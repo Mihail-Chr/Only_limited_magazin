@@ -306,6 +306,7 @@ def parse_name(full_name):
         'publisher': None,
         'region': None,
         'media_type': None,
+        'restore': 0,
     }
 
     # 0. Нормализация апострофов
@@ -373,6 +374,8 @@ def parse_name(full_name):
 
         # Служебные скобки — удаляем всегда: (Лицензия), (Пиратка)
         if lb in ('лицензия', 'пиратка'):
+            if lb == 'лицензия':
+                result['restore'] = 1
             return True
 
         # одиночное слово из словаря вариантов
@@ -487,7 +490,8 @@ def main():
                 edition = ?,
                 publisher = ?,
                 regionId = ?,
-                media_type = ?
+                media_type = ?,
+                restore = ?
             WHERE id = ?
         """, (
             parsed['base_name'],
@@ -497,6 +501,7 @@ def main():
             parsed['publisher'],
             region_id,
             parsed['media_type'],
+            parsed['restore'],
             r['id']
         ))
         updated += 1
