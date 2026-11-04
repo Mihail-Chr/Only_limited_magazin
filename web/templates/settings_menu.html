@@ -6,144 +6,392 @@
     <a href="/" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 12px 24px; border-radius: 4px; background: #2c3e50; color: white; font-weight: bold;">← На главную</a>
 </div>
 
-<!-- Загрузка карточек -->
-<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
-    <h3>Загрузка данных</h3>
-    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-        <button onclick="loadProducts('limited_games')" class="btn-primary" style="background: #27ae60; padding: 10px 20px; border: none; border-radius: 4px; color: white; font-weight: bold; cursor: pointer;">📥 Загрузить карточки (LimitedGames)</button>
-        <button onclick="loadProducts('console_games')" class="btn-primary" style="background: #27ae60; padding: 10px 20px; border: none; border-radius: 4px; color: white; font-weight: bold; cursor: pointer;">📥 Загрузить карточки (Console Games)</button>
+<!-- Два блока рядом: Загрузка данных и Резервная копия -->
+<div style="display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap;">
+    
+    <!-- Загрузка данных -->
+    <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; flex: 2; min-width: 400px;">
+        <h3>Загрузка данных</h3>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
+            <div>
+                <label style="display: block; font-weight: bold; margin-bottom: 4px;">Площадка:</label>
+                <select id="platform-select" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; min-width: 150px;">
+                    <option value="">— выберите —</option>
+                    {% for p in platforms_list %}
+                    <option value="{{ p }}">{{ p }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label style="display: block; font-weight: bold; margin-bottom: 4px;">Магазин:</label>
+                <select id="store-select" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; min-width: 200px;">
+                    <option value="">— выберите площадку —</option>
+                </select>
+            </div>
+            <div>
+                <label style="display: block; font-weight: bold; margin-bottom: 4px;">Действие:</label>
+                <select id="action-select" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; min-width: 200px;">
+                    <option value="">— выберите —</option>
+                    <option value="load_products">Загрузить карточки</option>
+                    <option value="load_postings">Загрузить движение товаров</option>
+                </select>
+            </div>
+            <button id="run-action-btn" class="btn-primary" style="background: #27ae60; padding: 10px 20px; border: none; border-radius: 4px; color: white; font-weight: bold; cursor: pointer;">▶ Выполнить</button>
+        </div>
+        <div id="action-result" style="margin-top: 15px; color: #7f8c8d;"></div>
     </div>
-    <div id="load-result" style="margin-top: 10px; color: #7f8c8d;"></div>
+
+    <!-- Резервная копия -->
+    <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; flex: 1; min-width: 250px;">
+        <h3>Резервная копия</h3>
+        <p style="color: #7f8c8d; font-size: 13px; margin-top: 0;">Скачать или восстановить базу данных</p>
+        
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+            <a href="/keeper/backup" class="btn-primary" style="display: block; text-align: center; text-decoration: none; background: #27ae60; padding: 10px 20px; border-radius: 4px; color: white; font-weight: bold;">📥 Загрузить</a>
+            
+            <div style="position: relative;">
+                <input type="file" id="restore-file" accept=".sqlite3" style="display: none;" onchange="restoreBackup()">
+                <button onclick="document.getElementById('restore-file').click()" class="btn-primary" style="width: 100%; background: #e67e22; padding: 10px 20px; border: none; border-radius: 4px; color: white; font-weight: bold; cursor: pointer;">📤 Восстановить</button>
+            </div>
+        </div>
+    </div>
+
 </div>
 
+<!-- Редактирование справочников -->
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 800px;">
     
     <!-- Склады -->
     <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px;">
         <h3>Склады</h3>
-        <ul style="list-style: none; padding: 0;">
+        <select id="edit-warehouse-select" style="width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px;">
             {% for wh in warehouses %}
-            <li style="padding: 8px 0; border-bottom: 1px solid #eee;">
-                <strong>{{ wh['name'] }}</strong>
-                <span style="color: #7f8c8d; font-size: 12px;">(id={{ wh['id'] }})</span>
-            </li>
+            <option value="{{ wh['id'] }}">{{ wh['name'] }}</option>
             {% endfor %}
-        </ul>
-        <p style="color: #7f8c8d; font-size: 12px;">Редактирование названий — в разработке.</p>
+        </select>
+        <button id="edit-warehouse-btn" class="btn-primary" style="background: #3498db; padding: 8px 16px; border: none; border-radius: 4px; color: white; font-weight: bold; cursor: pointer;">✏️ Редактировать</button>
     </div>
 
     <!-- Платформы -->
     <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px;">
         <h3>Платформы</h3>
-        <ul style="list-style: none; padding: 0; max-height: 200px; overflow-y: auto;">
+        <select id="edit-platform-select" style="width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px;">
             {% for p in platforms %}
-            <li style="padding: 4px 0; border-bottom: 1px solid #eee;">
-                {{ p['platformName'] }} {{ p['platformVersion'] }}
-            </li>
+            <option value="{{ p['platformId'] }}" data-name="{{ p['platformName'] }}" data-version="{{ p['platformVersion'] }}">{{ p['platformName'] }} {{ p['platformVersion'] }}</option>
             {% endfor %}
-        </ul>
+        </select>
+        <button id="edit-platform-btn" class="btn-primary" style="background: #3498db; padding: 8px 16px; border: none; border-radius: 4px; color: white; font-weight: bold; cursor: pointer;">✏️ Редактировать</button>
     </div>
 
     <!-- Издания -->
     <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px;">
         <h3>Издания</h3>
-        <ul style="list-style: none; padding: 0;">
+        <select id="edit-edition-select" style="width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px;">
             {% for e in editions %}
-            <li style="padding: 4px 0; border-bottom: 1px solid #eee;">{{ e['editionName'] }}</li>
+            <option value="{{ e['editionId'] }}">{{ e['editionName'] }}</option>
             {% endfor %}
-        </ul>
+        </select>
+        <button id="edit-edition-btn" class="btn-primary" style="background: #3498db; padding: 8px 16px; border: none; border-radius: 4px; color: white; font-weight: bold; cursor: pointer;">✏️ Редактировать</button>
     </div>
 
     <!-- Издатели -->
     <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px;">
         <h3>Издатели</h3>
-        <ul style="list-style: none; padding: 0; max-height: 200px; overflow-y: auto;">
+        <select id="edit-publisher-select" style="width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px;">
             {% for p in publishers %}
-            <li style="padding: 4px 0; border-bottom: 1px solid #eee;">{{ p['publisherName'] }}</li>
+            <option value="{{ p['publisherId'] }}">{{ p['publisherName'] }}</option>
             {% endfor %}
-        </ul>
+        </select>
+        <button id="edit-publisher-btn" class="btn-primary" style="background: #3498db; padding: 8px 16px; border: none; border-radius: 4px; color: white; font-weight: bold; cursor: pointer;">✏️ Редактировать</button>
     </div>
 
     <!-- Регионы -->
     <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px;">
         <h3>Регионы</h3>
-        <ul style="list-style: none; padding: 0;">
+        <select id="edit-region-select" style="width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px;">
             {% for r in regions %}
-            <li style="padding: 4px 0; border-bottom: 1px solid #eee;">{{ r['regionCode'] }}</li>
+            <option value="{{ r['regionId'] }}">{{ r['regionCode'] }}</option>
             {% endfor %}
-        </ul>
+        </select>
+        <button id="edit-region-btn" class="btn-primary" style="background: #3498db; padding: 8px 16px; border: none; border-radius: 4px; color: white; font-weight: bold; cursor: pointer;">✏️ Редактировать</button>
     </div>
 
 </div>
 
 <script>
-    let pollInterval = null;
+    // --- Загрузка данных ---
+    document.getElementById('platform-select').addEventListener('change', function() {
+        const platform = this.value;
+        const storeSelect = document.getElementById('store-select');
+        
+        if (!platform) {
+            storeSelect.innerHTML = '<option value="">— выберите площадку —</option>';
+            return;
+        }
+        
+        fetch(`/settings/stores_by_platform?platform=${platform}`)
+            .then(res => res.json())
+            .then(data => {
+                storeSelect.innerHTML = '<option value="">— выберите магазин —</option>';
+                data.stores.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.code;
+                    opt.textContent = s.name;
+                    storeSelect.appendChild(opt);
+                });
+            });
+    });
 
-    function loadProducts(storeCode) {
+    document.getElementById('run-action-btn').addEventListener('click', function() {
+        const platform = document.getElementById('platform-select').value;
+        const storeCode = document.getElementById('store-select').value;
+        const action = document.getElementById('action-select').value;
+        
+        if (!platform || !storeCode || !action) {
+            alert('Выберите площадку, магазин и действие');
+            return;
+        }
+        
+        const modal = showResultModal('Выполняется...', 'info');
+        
+        const formData = new FormData();
+        formData.append('platform', platform);
+        formData.append('store_code', storeCode);
+        formData.append('action', action);
+        
+        fetch('/settings/run_action', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            modal.remove();
+            if (data.ok) {
+                let text = data.message;
+                if (data.stdout) text += '\n\n' + data.stdout;
+                if (data.stderr) text += '\n\nОшибки:\n' + data.stderr;
+                showResultModal(text, 'success');
+            } else {
+                showResultModal('Ошибка: ' + data.error, 'error');
+            }
+        })
+        .catch(err => {
+            modal.remove();
+            showResultModal('Ошибка сети: ' + err.message, 'error');
+        });
+    });
+
+    // --- Редактирование ---
+    document.getElementById('edit-warehouse-btn').addEventListener('click', function() {
+        editItem('warehouse', document.getElementById('edit-warehouse-select').value);
+    });
+    document.getElementById('edit-platform-btn').addEventListener('click', function() {
+        editPlatform(document.getElementById('edit-platform-select').value);
+    });
+    document.getElementById('edit-edition-btn').addEventListener('click', function() {
+        editItem('edition', document.getElementById('edit-edition-select').value);
+    });
+    document.getElementById('edit-publisher-btn').addEventListener('click', function() {
+        editItem('publisher', document.getElementById('edit-publisher-select').value);
+    });
+    document.getElementById('edit-region-btn').addEventListener('click', function() {
+        editItem('region', document.getElementById('edit-region-select').value);
+    });
+
+    function editItem(type, id) {
+        const names = {
+            'warehouse': 'склад',
+            'platform': 'платформу',
+            'edition': 'издание',
+            'publisher': 'издателя',
+            'region': 'регион'
+        };
+        
+        let currentValue = '';
+        const selectMap = {
+            'warehouse': 'edit-warehouse-select',
+            'platform': 'edit-platform-select',
+            'edition': 'edit-edition-select',
+            'publisher': 'edit-publisher-select',
+            'region': 'edit-region-select'
+        };
+        const select = document.getElementById(selectMap[type]);
+        if (select) {
+            const selectedOption = select.options[select.selectedIndex];
+            if (selectedOption) {
+                currentValue = selectedOption.textContent;
+            }
+        }
+        
+        document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
+        
         const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
         modal.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:1000;';
+        
         modal.innerHTML = `
-            <div style="background:white; padding:24px; border-radius:8px; max-width:400px; text-align:center;">
-                <h3 style="margin-top:0;">Подтверждение</h3>
-                <p>Загрузить карточки для <strong>${storeCode}</strong>?</p>
-                <div style="display:flex; gap:10px; justify-content:center; margin-top:20px;">
-                    <button onclick="this.closest('div').parentElement.remove(); startLoad('${storeCode}');" class="btn-primary" style="background:#27ae60; padding:10px 20px; border:none; border-radius:4px; color:white; font-weight:bold; cursor:pointer;">Да</button>
-                    <button onclick="this.closest('div').parentElement.remove();" class="btn-primary" style="background:#95a5a6; padding:10px 20px; border:none; border-radius:4px; color:white; font-weight:bold; cursor:pointer;">Нет</button>
+            <div style="background:white; padding:24px; border-radius:8px; max-width:400px; width:90%;">
+                <h3 style="margin-top:0;">Редактировать ${names[type]}</h3>
+                <input type="text" id="edit-item-input" value="${currentValue}" placeholder="Новое значение" style="width:100%; padding:8px; margin-bottom:16px; border:1px solid #ccc; border-radius:4px;">
+                <div style="display:flex; gap:10px; justify-content:flex-end;">
+                    <button id="save-item-btn" class="btn-primary" style="background:#27ae60; padding:10px 20px; border:none; border-radius:4px; color:white; font-weight:bold; cursor:pointer;">Сохранить</button>
+                    <button id="cancel-item-btn" class="btn-primary" style="background:#95a5a6; padding:10px 20px; border:none; border-radius:4px; color:white; font-weight:bold; cursor:pointer;">Отмена</button>
                 </div>
             </div>
         `;
         document.body.appendChild(modal);
+        
+        // Привязываем обработчики к кнопкам
+        modal.querySelector('#save-item-btn').addEventListener('click', function() {
+            saveItem(type, id);
+        });
+        modal.querySelector('#cancel-item-btn').addEventListener('click', function() {
+            modal.remove();
+        });
     }
 
-    function startLoad(storeCode) {
-        const resultDiv = document.getElementById('load-result');
-        resultDiv.textContent = 'Загрузка запущена...';
-        resultDiv.style.color = '#7f8c8d';
+    function saveItem(type, id) {
+        const newValue = document.getElementById('edit-item-input').value;
+        if (!newValue) {
+            alert('Введите значение');
+            return;
+        }
         
-        fetch(`/settings/load_products?store_code=${storeCode}`, {
-            method: 'POST'
+        const formData = new FormData();
+        formData.append('item_type', type);
+        formData.append('item_id', id);
+        formData.append('new_value', newValue);
+        
+        fetch('/settings/update_item', {
+            method: 'POST',
+            body: formData
         })
         .then(res => res.json())
         .then(data => {
             if (data.ok) {
-                resultDiv.textContent = data.message;
-                resultDiv.style.color = '#27ae60';
-                
-                if (pollInterval) clearInterval(pollInterval);
-                pollInterval = setInterval(checkStatus, 3000);
+                alert('Обновлено: ' + data.message);
+                location.reload();
             } else {
-                resultDiv.textContent = 'Ошибка: ' + data.error;
-                resultDiv.style.color = '#e74c3c';
+                alert('Ошибка: ' + data.error);
             }
         })
-        .catch(err => {
-            resultDiv.textContent = 'Ошибка сети: ' + err.message;
-            resultDiv.style.color = '#e74c3c';
+        .catch(err => alert('Ошибка сети: ' + err.message));
+    }
+
+    function editPlatform(id) {
+        const select = document.getElementById('edit-platform-select');
+        const opt = select.options[select.selectedIndex];
+        const currentName = opt.dataset.name;
+        const currentVersion = opt.dataset.version;
+        
+        document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:1000;';
+        modal.innerHTML = `
+            <div style="background:white; padding:24px; border-radius:8px; max-width:400px; width:90%;">
+                <h3 style="margin-top:0;">Редактировать платформу</h3>
+                <label style="display:block; font-weight:bold; margin-bottom:4px;">Название:</label>
+                <input type="text" id="edit-platform-name" value="${currentName}" style="width:100%; padding:8px; margin-bottom:10px; border:1px solid #ccc; border-radius:4px;">
+                <label style="display:block; font-weight:bold; margin-bottom:4px;">Версия:</label>
+                <input type="text" id="edit-platform-version" value="${currentVersion}" style="width:100%; padding:8px; margin-bottom:16px; border:1px solid #ccc; border-radius:4px;">
+                <div style="display:flex; gap:10px; justify-content:flex-end;">
+                    <button id="save-platform-btn" class="btn-primary" style="background:#27ae60; padding:10px 20px; border:none; border-radius:4px; color:white; font-weight:bold; cursor:pointer;">Сохранить</button>
+                    <button id="cancel-platform-btn" class="btn-primary" style="background:#95a5a6; padding:10px 20px; border:none; border-radius:4px; color:white; font-weight:bold; cursor:pointer;">Отмена</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        
+        modal.querySelector('#save-platform-btn').addEventListener('click', function() {
+            const newName = document.getElementById('edit-platform-name').value;
+            const newVersion = document.getElementById('edit-platform-version').value;
+            if (!newName || !newVersion) {
+                alert('Заполните оба поля');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('item_type', 'platform');
+            formData.append('item_id', id);
+            formData.append('new_value', newName);
+            formData.append('new_version', newVersion);
+            
+            fetch('/settings/update_item', {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.ok) {
+                    alert('Обновлено');
+                    location.reload();
+                } else {
+                    alert('Ошибка: ' + data.error);
+                }
+            })
+            .catch(err => alert('Ошибка сети: ' + err.message));
+        });
+        
+        modal.querySelector('#cancel-platform-btn').addEventListener('click', function() {
+            modal.remove();
         });
     }
 
-    function checkStatus() {
-        fetch('/settings/load_status')
-        .then(res => res.json())
-        .then(data => {
-            const resultDiv = document.getElementById('load-result');
-            if (data.ok && data.status === 'completed') {
-                resultDiv.textContent = 'Загрузка завершена! Файл: ' + data.file;
-                resultDiv.style.color = '#27ae60';
-                if (pollInterval) clearInterval(pollInterval);
-                setTimeout(() => location.reload(), 2000);
-            } else if (data.ok && data.status === 'in_progress') {
-                resultDiv.textContent = 'Загрузка идёт... (файл: ' + data.file + ')';
-                resultDiv.style.color = '#f39c12';
+    function restoreBackup() {
+        const fileInput = document.getElementById('restore-file');
+        const file = fileInput.files[0];
+        if (!file) return;
+        
+        if (!confirm('Вы уверены, что хотите восстановить базу из файла? Текущие данные будут потеряны!')) {
+            fileInput.value = '';
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const modal = showResultModal('Восстановление базы...', 'info');
+        
+        fetch('/keeper/restore', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => {
+            modal.remove();
+            if (res.redirected) {
+                window.location.href = res.url;
             } else {
-                resultDiv.textContent = 'Ошибка: ' + (data.error || 'неизвестная');
-                resultDiv.style.color = '#e74c3c';
-                if (pollInterval) clearInterval(pollInterval);
+                return res.json().then(data => {
+                    showResultModal('Ошибка: ' + (data.error || 'неизвестная'), 'error');
+                });
             }
         })
         .catch(err => {
-            console.error('Ошибка опроса:', err);
+            modal.remove();
+            showResultModal('Ошибка сети: ' + err.message, 'error');
         });
+    }
+
+    function showResultModal(text, type) {
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:1000;';
+        const color = type === 'error' ? '#e74c3c' : (type === 'success' ? '#27ae60' : '#7f8c8d');
+        modal.innerHTML = `
+            <div style="background:white; padding:24px; border-radius:8px; max-width:600px; width:90%; max-height:80vh; display:flex; flex-direction:column;">
+                <h3 style="margin-top:0; color:${color};">${type === 'error' ? 'Ошибка' : (type === 'success' ? 'Успех' : 'Выполняется...')}</h3>
+                <pre style="background:#f8f9fa; padding:12px; border-radius:4px; overflow-y:auto; max-height:50vh; white-space:pre-wrap; font-size:13px; margin:0; flex:1;">${text}</pre>
+                <div style="margin-top:20px; text-align:right;">
+                    <button class="btn-primary" style="background:${color}; padding:10px 20px; border:none; border-radius:4px; color:white; font-weight:bold; cursor:pointer;">OK</button>
+                </div>
+            </div>
+        `;
+        modal.querySelector('button').addEventListener('click', () => modal.remove());
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.remove();
+        });
+        document.body.appendChild(modal);
+        return modal;
     }
 </script>
 {% endblock %}

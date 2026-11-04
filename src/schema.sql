@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS store (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     code            TEXT NOT NULL UNIQUE,
     name            TEXT NOT NULL,
+    platform        TEXT DEFAULT 'ozon',
     client_id       TEXT,
     api_key         TEXT,
     has_api         INTEGER NOT NULL DEFAULT 0,
