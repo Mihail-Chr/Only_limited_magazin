@@ -100,6 +100,28 @@ def step_fetch_products(stores: list[dict]) -> bool:
 def step_fetch_postings(stores: list[dict]) -> bool:
     """Шаг 4: загрузить продажи (для каждого магазина). Мягко."""
     print("[4/6] Загрузка движения (продаж)...")
+
+    # --- ПРОВЕРКА СХЕМЫ API (если есть сохраненные данные) ---
+    from pathlib import Path
+    import json
+    from jsonschema import validate, ValidationError
+    
+    api_raw = Path("data/api_raw")
+    files = list(api_raw.glob("*postings*.json"))
+    if files:
+        latest = max(files, key=lambda f: f.stat().st_mtime)
+        try:
+            with open(latest, encoding="utf-8") as f:
+                data = json.load(f)
+            # Простейшая проверка, что это список (или dict с postings)
+            if isinstance(data, list):
+                print("  ✅ Структура JSON (список) — ОК")
+            else:
+                print("  ⚠️ Структура JSON изменилась (не список) — проверьте!")
+        except Exception as e:
+            print(f"  ⚠️ Ошибка чтения JSON: {e}")
+    # ---------------------------------------------------------
+
     from src.scripts.fetch_postings import fetch_postings
 
     success = 0
