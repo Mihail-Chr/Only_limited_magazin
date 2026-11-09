@@ -71,13 +71,14 @@ def _load_stores() -> Dict[str, Dict[str, Store]]:
         store_codes = [c.strip() for c in store_codes_str.split(",") if c.strip()]
         
         for code in store_codes:
-            store_id = os.getenv(f"{prefix}_{code.upper()}_ID")
-            store_key = os.getenv(f"{prefix}_{code.upper()}_KEY")
+            # Читаем CLIENT_ID и API_KEY, как в .env.example
+            store_id = os.getenv(f"{prefix}_{code.upper()}_CLIENT_ID")
+            store_key = os.getenv(f"{prefix}_{code.upper()}_API_KEY")
             store_name = os.getenv(f"{prefix}_{code.upper()}_NAME", code)
             
             # Проверка на пустые значения
             if not store_id or not store_key:
-                print(f"⚠️ Магазин '{code}' на площадке '{platform}' пропущен: не заданы ID или KEY")
+                print(f"⚠️ Магазин '{code}' на площадке '{platform}' пропущен: не заданы CLIENT_ID или API_KEY")
                 continue
             
             stores[platform][code] = Store(

@@ -1,43 +1,38 @@
-import sqlite3
+import sys
+from pathlib import Path
 
-conn = sqlite3.connect('db/only_limited.sqlite3')
-conn.row_factory = sqlite3.Row
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-# Считаем, сколько заглушек было до удаления
-before_count = conn.execute("SELECT COUNT(*) FROM product WHERE name = 'Новый товар (ожидает заполнения)'").fetchone()[0]
-print(f"Заглушек до удаления: {before_count}")
+from src.db import get_conn
 
-# Ищем товары-заглушки
-stubs = conn.execute("""
-    SELECT id FROM product 
-    WHERE name = 'Новый товар (ожидает заполнения)'
-""").fetchall()
+def main():
+    with get_conn() as conn:
+        # Находим все заглушки
+        stubs = conn.execute("""
+            SELECT productId FROM products 
+            WHERE name LIKE 'Товар %' OR baseGameName LIKE 'Товар %'
+        """).fetchall()
+        
+        if not stubs:
+            print("Заглушек не найдено.")
+            return
 
-skipped = 0
+        deleted = 0
 
-for stub in stubs:
-    product_id = stub['id']
-    
-    # Проверяем, есть ли на этот товар ссылки в заказах (posting_item)
-    has_postings = conn.execute(
-        "SELECT COUNT(*) FROM posting_item WHERE product_id = ?", (product_id,)
-    ).fetchone()[0]
-    
-    # Если товар продавался — удалять нельзя, пропускаем
-    if has_postings > 0:
-        skipped += 1
-        continue
-    
-    # Если товар не продавался — удаляем его из listing и из product
-    conn.execute("DELETE FROM listing WHERE product_id = ?", (product_id,))
-    conn.execute("DELETE FROM product WHERE id = ?", (product_id,))
+        for row in stubs:
+            pid = row["productId"]
+            
+            # Удаляем позиции заказов (если вдруг они есть)
+            conn.execute("DELETE FROM salesOrderItems WHERE productId = ?", (pid,))
+            # Удаляем листинги
+            conn.execute("DELETE FROM listings WHERE productId = ?", (pid,))
+            # Удаляем сам товар
+            conn.execute("DELETE FROM products WHERE productId = ?", (pid,))
+            
+            deleted += 1
 
-conn.commit()
+        conn.commit()
+        print(f"Удалено заглушек: {deleted}")
 
-# Считаем, сколько заглушек осталось после удаления
-after_count = conn.execute("SELECT COUNT(*) FROM product WHERE name = 'Новый товар (ожидает заполнения)'").fetchone()[0]
-deleted_count = before_count - after_count
-
-print(f"Заглушек после удаления: {after_count}")
-print(f"Удалено (по разнице): {deleted_count}")
-print(f"Пропущено (есть ссылки в заказах): {skipped}")
+if __name__ == "__main__":
+    main()
