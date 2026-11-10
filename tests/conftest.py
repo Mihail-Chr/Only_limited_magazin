@@ -7,7 +7,7 @@
 import pytest
 import sqlite3
 import os
-
+from tests.unit.conftest import setup_test_db
 
 TEST_DB_PATH = "db/test_only_limited.sqlite3"
 
