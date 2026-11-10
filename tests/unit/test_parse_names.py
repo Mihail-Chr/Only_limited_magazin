@@ -92,7 +92,7 @@ def test_parse_name_returns_platform_id_ps45():
     conn = get_test_conn()
     try:
         row = conn.execute(
-            "SELECT platformId FROM platforms WHERE platformName = 'PlayStation' AND platformVersion = '4/5'"
+            "SELECT platformId FROM platforms WHERE platformName = 'PlayStation' AND platformVersion = '4'"
         ).fetchone()
         expected_id = row["platformId"] if row else None
 
