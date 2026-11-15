@@ -78,7 +78,7 @@ def test_fetch_postings_creates_sales_orders(monkeypatch, tmp_path):
     result = fetch_postings("ozon", "limited_games", "2026-11-01", "2026-11-08", client=client)
 
     assert result["ok"] is True
-    assert result["inserted"] == 1
+    assert result["created"] == 1
 
     conn = get_test_conn()
     rows = conn.execute("SELECT marketplaceOrderId FROM salesOrders").fetchall()
@@ -199,8 +199,8 @@ def test_fetch_postings_returns_counts(monkeypatch, tmp_path):
     result = fetch_postings("ozon", "limited_games", "2026-11-01", "2026-11-08", client=client)
 
     assert result["ok"] is True
-    assert result["inserted"] == 2
-
+    assert result["created"] == 2
+    assert result["skipped"] == 0
 
 def test_fetch_postings_multiple_orders(monkeypatch, tmp_path):
     """fetch_postings создаёт несколько заказов."""
@@ -457,7 +457,7 @@ def test_fetch_postings_handles_empty_response(monkeypatch, tmp_path):
     result = fetch_postings("ozon", "limited_games", "2026-11-01", "2026-11-08", client=client)
 
     assert result["ok"] is True
-    assert result["inserted"] == 0
+    assert result["created"] == 0
 
 
 def test_fetch_postings_handles_none_response(monkeypatch, tmp_path):
@@ -477,7 +477,7 @@ def test_fetch_postings_handles_none_response(monkeypatch, tmp_path):
     result = fetch_postings("ozon", "limited_games", "2026-11-01", "2026-11-08", client=client)
 
     assert result["ok"] is True
-    assert len(result["errors"]) > 0
+    assert len(result["warnings"]) > 0
 
 
 def test_fetch_postings_handles_invalid_json(monkeypatch):
@@ -522,7 +522,7 @@ def test_fetch_postings_negative_quantity(monkeypatch, tmp_path):
     item = conn.execute("SELECT quantity FROM salesOrderItems").fetchone()
     conn.close()
     assert item["quantity"] == 3
-    assert len(result["errors"]) > 0
+    assert len(result["warnings"]) > 0
 
 
 def test_fetch_postings_empty_quantity(monkeypatch, tmp_path):
@@ -547,7 +547,7 @@ def test_fetch_postings_empty_quantity(monkeypatch, tmp_path):
     result = fetch_postings("ozon", "limited_games", "2026-11-01", "2026-11-08", client=client)
 
     assert result["ok"] is True
-    assert len(result["errors"]) > 0
+    assert len(result["warnings"]) > 0
     conn = get_test_conn()
     items = conn.execute("SELECT * FROM salesOrderItems").fetchall()
     conn.close()
@@ -579,7 +579,7 @@ def test_fetch_postings_negative_price(monkeypatch, tmp_path):
     item = conn.execute("SELECT salePrice FROM salesOrderItems").fetchone()
     conn.close()
     assert item["salePrice"] == 100.0
-    assert len(result["errors"]) > 0
+    assert len(result["warnings"]) > 0
 
 
 def test_fetch_postings_empty_price(monkeypatch, tmp_path):
@@ -607,4 +607,4 @@ def test_fetch_postings_empty_price(monkeypatch, tmp_path):
     item = conn.execute("SELECT salePrice FROM salesOrderItems").fetchone()
     conn.close()
     assert item["salePrice"] == 0.0
-    assert len(result["errors"]) > 0
+    assert len(result["warnings"]) > 0

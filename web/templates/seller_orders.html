@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}История продаж{% endblock %}
+{% block content %}
+<h2>История продаж</h2>
+<div style="margin-bottom: 20px;">
+    <a href="/seller" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 10px 20px; border-radius: 4px; background: #2c3e50; color: white; font-weight: bold;">← Назад к продавцу</a>
+</div>
+
+<form method="get" action="/seller/orders" style="margin-bottom: 20px; display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
+    <div>
+        <label style="display:block; font-weight:bold; margin-bottom:4px;">Дата с:</label>
+        <input type="date" name="date_from" value="{{ date_from }}" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+    </div>
+    <div>
+        <label style="display:block; font-weight:bold; margin-bottom:4px;">Дата по:</label>
+        <input type="date" name="date_to" value="{{ date_to }}" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+    </div>
+    <button type="submit" class="btn-primary" style="background: #3498db; padding: 9px 20px; border: none; border-radius: 4px; color: white; font-weight: bold; cursor: pointer;">🔍 Фильтр</button>
+    <a href="/seller/orders" style="padding: 9px 20px; text-decoration: none; color: #2c3e50; font-weight: bold;">Сбросить</a>
+</form>
+
+<table id="orders-table">
+    <thead>
+        <tr>
+            <th onclick="sortTable(1)" style="cursor: pointer; user-select: none;">№ Заказа <span id="sort-order-icon">↕</span></th>
+            <th onclick="sortTable(2)" style="cursor: pointer; user-select: none;">Дата <span id="sort-date-icon">↕</span></th>
+            <th>Площадка</th>
+            <th>Покупатель</th>
+            <th>Товар</th>
+            <th>Кол-во</th>
+            <th>Цена</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% set ns = namespace(current_order="", color_idx=0) %}
+        {% for r in rows %}
+            {% if r.order_num != ns.current_order %}
+                {% set ns.current_order = r.order_num %}
+                {% set ns.color_idx = (ns.color_idx + 1) % 2 %}
+            {% endif %}
+            <tr class="{% if ns.color_idx == 1 %}group-1{% else %}group-2{% endif %}" data-order="{{ r.order_num }}" data-date="{{ r.created_at }}">
+                <td>{{ r.order_num }}</td>
+                <td>{{ r.created_at[:16] }}</td>
+                <td>{{ r.marketplace }}</td>
+                <td>{{ r.buyer }}</td>
+                <td>{{ r.product_name }}</td>
+                <td class="num">{{ r.quantity }}</td>
+                <td class="num">{{ "%.2f"|format(r.price) }} ₽</td>
+            </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if not rows %}
+<p style="color: #7f8c8d; margin-top: 20px;">Заказов за выбранный период нет.</p>
+{% endif %}
+
+<style>
+    #orders-table { width: 100%; border-collapse: collapse; }
+    #orders-table th, #orders-table td { padding: 8px; border-bottom: 1px solid #ddd; text-align: left; }
+    #orders-table th { background-color: #f8f9fa; font-weight: bold; }
+    
+    /* Чередование фона для визуального отделения заказов (без синих линий) */
+    .group-1 { background-color: #f9fbfd; }
+    .group-2 { background-color: #eef4f9; }
+</style>
+
+<script>
+    let sortDirections = { order: 1, date: 1 };
+
+    function sortTable(colIdx) {
+        const tbody = document.querySelector('#orders-table tbody');
+        const ordersMap = new Map();
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        
+        rows.forEach(row => {
+            const orderNum = row.dataset.order;
+            if (!ordersMap.has(orderNum)) {
+                ordersMap.set(orderNum, { orderNum, date: row.dataset.date, rows: [] });
+            }
+            ordersMap.get(orderNum).rows.push(row);
+        });
+
+        const ordersArray = Array.from(ordersMap.values());
+        const field = colIdx === 1 ? 'order' : 'date';
+        sortDirections[field] *= -1;
+        const direction = sortDirections[field];
+
+        ordersArray.sort((a, b) => {
+            let valA = field === 'order' ? a.orderNum : a.date;
+            let valB = field === 'order' ? b.orderNum : b.date;
+            return valA.localeCompare(valB) * direction;
+        });
+
+        tbody.innerHTML = '';
+        ordersArray.forEach(order => {
+            order.rows.forEach(row => tbody.appendChild(row));
+        });
+
+        document.getElementById('sort-order-icon').textContent = '↕';
+        document.getElementById('sort-date-icon').textContent = '↕';
+        if (field === 'order') document.getElementById('sort-order-icon').textContent = direction === 1 ? '↑' : '↓';
+        if (field === 'date') document.getElementById('sort-date-icon').textContent = direction === 1 ? '↑' : '↓';
+    }
+</script>
+{% endblock %}

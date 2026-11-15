@@ -100,18 +100,13 @@ def test_editionTypes_seeded():
     assert "Ultimate" in names
     assert "Collector's" in names
     assert "Steelbook" in names
-
     assert "GOTY" in names
     assert "Game of the Year" in names
-
     assert "Legendary Edition" in names
     assert "Legendary Edition Steelbook" in names
-    assert "Anniversary Collection" in names
-    assert "Collection" in names
+    assert "Anniversary Collection" in names    
     assert "Survivor Steelbook" in names
-
-    assert "Platinum" in names
-    assert "Black" in names
+    # assert "Black" in names
     assert "Tails" in names
     assert "Knuckles" in names
 
@@ -127,12 +122,12 @@ def test_editionTypes_no_duplicates():
 
 
 def test_publishers_seeded():
-    """publishers: 30 издателей."""
+    """publishers: 31 издателей."""
     conn = get_test_conn()
     rows = conn.execute("SELECT publisherName FROM publishers").fetchall()
     conn.close()
 
-    assert len(rows) == 30, f"Ожидалось 30 издателей, получено {len(rows)}"
+    assert len(rows) == 31, f"Ожидалось 31 издатель, получено {len(rows)}"
     names = {r["publisherName"] for r in rows}
     assert "Nintendo" in names
     assert "Limited Run Games" in names

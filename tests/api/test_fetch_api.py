@@ -38,7 +38,7 @@ def test_fetch_postings_api_integration(mock_ozon_client, monkeypatch, tmp_path,
     result = fetch_postings("ozon", "limited_games", "2026-11-01", "2026-11-10")
     
     assert result["ok"] is True
-    assert result["inserted"] == 1
+    assert result["created"] == 1
     
     # Проверяем, что данные реально в базе
     conn = sqlite3.connect(TEST_DB_PATH)

@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title %}Экран продавца{% endblock %}
+{% block content %}
+<h2>Экран продавца</h2>
+<div style="margin-bottom: 20px; display: flex; gap: 10px;">
+    <a href="/" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 10px 20px; border-radius: 4px; background: #2c3e50; color: white; font-weight: bold;">← На главную</a>
+    <a href="/seller/orders" class="btn-primary" style="display: inline-block; text-decoration: none; padding: 10px 20px; border-radius: 4px; background: #2980b9; color: white; font-weight: bold;">📜 История продаж</a>
+</div>
+
+<!-- Блок корзины -->
+<div style="border: 2px solid #3498db; border-radius: 8px; padding: 15px; margin-bottom: 20px; background: #f0f8ff;">
+    <h3>🛒 Корзина заказа</h3>
+    <div id="cart-items" style="margin-bottom: 15px; color: #7f8c8d;">Корзина пуста</div>
+    <div style="display: flex; gap: 10px; align-items: flex-end;">
+        <div>
+            <label style="font-weight:bold;">Покупатель:</label><br>
+            <input type="text" id="buyer-name" value="Физлицо" style="padding: 8px; border:1px solid #ccc; border-radius:4px;">
+        </div>
+        <button onclick="submitOrder()" class="btn-primary" style="background: #27ae60; padding: 10px 20px; border: none; color: white; font-weight: bold; cursor: pointer;">💾 Оформить заказ</button>
+    </div>
+</div>
+
+<div style="margin-bottom: 15px;">
+    <input type="text" id="search-input" placeholder="Поиск по названию..." style="width: 300px; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">
+</div>
+
+<table id="seller-table">
+    <thead>
+        <tr>
+            <th>Выбор</th>
+            <th>Артикул</th>
+            <th onclick="toggleSort('name')" style="cursor: pointer; user-select: none;">Наименование <span id="sort-icon-name">↕</span></th>
+            <th>Платформа</th>
+            <th onclick="toggleSort('warehouse')" style="cursor: pointer; user-select: none;">Склад <span id="sort-icon-warehouse">↕</span></th>
+            <th>Остаток</th>
+            <th>Цена (₽)</th>
+            <th>В заказ</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in rows %}
+        <tr data-id="{{ r.id }}" data-warehouse-id="{{ r.warehouse_id }}" data-name="{{ r.name }}" data-warehouse="{{ r.warehouse_name }}" data-stock="{{ r.quantity }}" data-price="{{ r.ozon_price or 0 }}">
+            <td><input type="checkbox" class="select-cb" onchange="toggleRow(this)"></td>
+            <td>{{ r.offer_id }}</td>
+            <td>{{ r.name }}</td>
+            <td>{{ r.platform or '—' }}</td>
+            <td>{{ r.warehouse_name }}</td>
+            <td>{{ r.quantity }}</td>
+            <td><input type="number" class="price-input" value="{{ r.ozon_price or 0 }}" style="width: 80px;" min="0" disabled oninput="this.value = this.value.replace(/[^0-9.]/g, ''); updateCart();"></td>
+            <td><input type="number" class="qty-input" value="1" min="1" max="{{ r.quantity }}" style="width: 60px;" disabled oninput="this.value = this.value.replace(/[^0-9]/g, ''); updateCart();"></td>
+            
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<script>
+    let cart = {};
+    let sortStack = [];
+    let originalOrder = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+        originalOrder = Array.from(document.querySelectorAll('#seller-table tbody tr'));
+    });
+
+    // Поиск
+    document.getElementById('search-input').addEventListener('input', function() {
+        const q = this.value.toLowerCase().trim();
+        document.querySelectorAll('#seller-table tbody tr').forEach(row => {
+            const name = row.dataset.name.toLowerCase();
+            row.style.display = name.includes(q) ? '' : 'none';
+        });
+    });
+
+    // Сортировка
+    function toggleSort(field) {
+        const idx = sortStack.findIndex(i => i.field === field);
+        if (idx !== -1) {
+            if (sortStack[idx].direction === 1) sortStack[idx].direction = -1;
+            else sortStack.splice(idx, 1);
+        } else {
+            sortStack.push({field, direction: 1});
+        }
+        updateSortIcons();
+        applySorting();
+    }
+
+    function updateSortIcons() {
+        document.getElementById('sort-icon-name').textContent = '↕';
+        document.getElementById('sort-icon-warehouse').textContent = '↕';
+        sortStack.forEach(item => {
+            const el = document.getElementById('sort-icon-' + item.field);
+            if (el) el.textContent = item.direction === 1 ? '↑' : '↓';
+        });
+    }
+
+    function applySorting() {
+        const tbody = document.querySelector('#seller-table tbody');
+        if (sortStack.length === 0) {
+            originalOrder.forEach(row => tbody.appendChild(row));
+            return;
+        }
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort((a, b) => {
+            for (const item of sortStack) {
+                const valA = a.dataset[item.field] || '';
+                const valB = b.dataset[item.field] || '';
+                const cmp = valA.localeCompare(valB, 'ru') * item.direction;
+                if (cmp !== 0) return cmp;
+            }
+            return 0;
+        });
+        rows.forEach(row => tbody.appendChild(row));
+    }
+
+    // Корзина
+    function toggleRow(cb) {
+        const row = cb.closest('tr');
+        const key = row.dataset.id + '_' + row.dataset.warehouseId;
+        const priceInput = row.querySelector('.price-input');
+        const qtyInput = row.querySelector('.qty-input');
+        
+        priceInput.disabled = !cb.checked;
+        qtyInput.disabled = !cb.checked;
+
+        if (cb.checked) {
+            cart[key] = { 
+                id: row.dataset.id,
+                warehouse_id: row.dataset.warehouseId,
+                name: row.dataset.name, 
+                warehouse: row.dataset.warehouse,
+                qty: parseInt(qtyInput.value) || 1, 
+                price: parseFloat(priceInput.value) || 0, 
+                max: parseInt(row.dataset.stock) 
+            };
+        } else {
+            delete cart[key];
+        }
+        renderCart();
+    }
+
+    function updateCart() {
+        document.querySelectorAll('.select-cb:checked').forEach(cb => {
+            const row = cb.closest('tr');
+            const key = row.dataset.id + '_' + row.dataset.warehouseId;
+            if (cart[key]) {
+                cart[key].qty = parseInt(row.querySelector('.qty-input').value) || 1;
+                cart[key].price = parseFloat(row.querySelector('.price-input').value) || 0;
+            }
+        });
+        renderCart();
+    }
+
+    function renderCart() {
+        const container = document.getElementById('cart-items');
+        const keys = Object.keys(cart);
+        if (keys.length === 0) {
+            container.innerHTML = 'Корзина пуста';
+            return;
+        }
+        let html = '<ul style="margin:0; padding-left: 20px;">';
+        keys.forEach(k => {
+            const item = cart[k];
+            html += `<li>${item.name} <b>(${item.warehouse})</b> — ${item.qty} шт. × ${item.price.toFixed(2)} ₽</li>`;
+        });
+        html += '</ul>';
+        container.innerHTML = html;
+    }
+
+    async function submitOrder() {
+        const items = Object.keys(cart).map(k => ({
+            product_id: parseInt(cart[k].id),
+            warehouse_id: parseInt(cart[k].warehouse_id),
+            quantity: cart[k].qty,
+            sale_price: cart[k].price
+        }));
+
+        if (items.length === 0) return showResultModal('Корзина пуста', 'error');
+
+        for (let k in cart) {
+            if (cart[k].qty > cart[k].max) {
+                return showResultModal(`Товар «${cart[k].name}»: указано ${cart[k].qty} шт., а на складе «${cart[k].warehouse}» ${cart[k].max}`, 'error');
+            }
+        }
+
+        const payload = {
+            buyer_nickname: document.getElementById('buyer-name').value,
+            items: items
+        };
+
+        const modal = showResultModal('Оформление заказа...', 'info');
+
+        try {
+            const resp = await fetch('/seller/manual_sale', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+            modal.remove();
+            
+            if (data.ok) {
+                showResultModal('Заказ создан: ' + data.order_id, 'success');
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                showResultModal('Ошибка: ' + data.error, 'error');
+            }
+        } catch (e) {
+            modal.remove();
+            showResultModal('Ошибка сети: ' + e.message, 'error');
+        }
+    }
+
+    // Модалки
+    function showResultModal(text, type) {
+        document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:1000;';
+        const color = type === 'error' ? '#e74c3c' : (type === 'success' ? '#27ae60' : '#34495e');
+        const title = type === 'error' ? 'Ошибка' : (type === 'success' ? 'Успех' : 'Информация');
+        
+        modal.innerHTML = `
+            <div style="background:white; padding:24px; border-radius:8px; max-width:500px; width:90%;">
+                <h3 style="margin-top:0; color:${color};">${title}</h3>
+                <p style="font-size:16px;">${text}</p>
+                <div style="text-align:right; margin-top:20px;">
+                    <button class="btn-primary" style="background:${color}; padding:10px 20px; border:none; border-radius:4px; color:white; font-weight:bold; cursor:pointer;">ОК</button>
+                </div>
+            </div>
+        `;
+        modal.querySelector('button').addEventListener('click', () => modal.remove());
+        document.body.appendChild(modal);
+        return modal;
+    }
+</script>
+{% endblock %}

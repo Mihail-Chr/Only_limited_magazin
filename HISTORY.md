@@ -1443,3 +1443,370 @@ fetch_postings(platform, store_code, date_from, date_to, client=None) -> dict
 Если в названии есть две платформы (например, `Sega` и `PS4`), это значит, что игра переиздана на новую платформу. По-хорошему, приоритет нужно отдавать современной платформе (`PS4`), а не старой (`Sega`). Это отложено до лучших времен (пока берём ту, что нашлась).
 
 **Итог:** 25/25 тестов зелёные. Парсер готов на 90%.
+
+## 2026-11-11 — Парсер v2: финальные правила (на основе реальных данных)
+
+**Контекст:** аудит реальных 2000+ названий показал, что парсер ошибается (персонажи, Sega, издатели, скобки). Утверждён **порядок «нашел → вырезал»** и правила.
+
+**1. Порядок парсера (строго по шагам):**
+1. **Тип** — искать `TYPE_MAP` в **первых 3 словах** (не только первом). `Видеоигра` → `game`, `Геймпад` → `gamepad`, `Стилбук` → `steelbook`, и т.д. **Вырезать** найденное слово.
+2. **`Steelbook Без Игры`** — скобка с `без игры`/`без диска` → `typeGoodId = steelbook`, **вырезать** скобку.
+3. **`Лицензия`/`Пиратка`** — скобка → `restore = 1`, **вырезать** скобку.
+4. **Издатель** — скобка, **точно** совпадающая с `publishers` (нормализованно) → `publisherId`, **вырезать** скобку.
+5. **Регион** — скобка с `US`/`EU`/`PAL`/`Japan`/`NTSC U/C`/`DE Cover` → `regionId`, **вырезать** скобку.
+6. **Платформа в скобках** — скобка, **точно** совпадающая с `platforms` → `platformId`, **вырезать** скобку. Если платформ несколько (`PS4/PS5`) — **меньшая** (`PS4`).
+7. **Персонаж** — скобка (`Tails`, `Knuckles`, `Sonic`, `Green Hill Zone`), **только если** `typeGoodId is not None` **и** `typeGoodId not in (game, bundle)` → `editionId`, **вырезать** скобку.
+8. **`Bundle`/`Trilogy`/`Double Pack`/`Combo`** — вне скобок, **только если** `typeGoodId is None` **или** `typeGoodId == game` → `typeGoodId = bundle`.
+9. **Издание (якорь `Edition`)** — 1–3 слова до `Edition`, **точно** в `editionTypes` → `editionId`, **вырезать** фразу + `Edition`.
+10. **Издание (без якоря, для не-игр)** — вне скобок фраза из `editionTypes`, **только если** `typeGoodId != game && typeGoodId != bundle` → `editionId`, **вырезать** фразу.
+11. **Платформа вне скобок** — если в скобках **не найдена**. `Sega Dreamcast`/`Sega Saturn`/`Sega Game Gear` — платформа. `SEGA Mega Drive`/`Sega Genesis` — **не** платформа (часть названия). Если платформ несколько — **последняя упомянутая** (`Game for NDS PS5` → `PS5`).
+12. **Издатель вне скобок** — **в конце** названия, **точно** в `publishers` → `publisherId`, **вырезать**.
+13. **Остатки (не трогать)** — `(Без фото)`, `(Polaroid)`, `(обложка)`, `(Cover)`, `(Английская обложка)`, неизвестные скобки — **оставить** в `baseGameName`. `typeGoodId` по умолчанию — `game`.
+14. **`baseGameName`** — `clean_text`.
+
+**2. `seed_editionTypes` (изменения):**
+- **Добавить:** `Tails`, `Knuckles`, `Sonic`, `Green Hill Zone`, `Special`, `Buster`, `American Wilds`, `Abducted`, `Origins Collection`, `10th Anniversary`.
+- **Убрать:** `Black`, `Vengeance`, `Platinum`, `Mirror`. `Collection` — **только** `Anniversary Collection`.
+
+**3. `platforms` (изменения):**
+- `SEGA Mega Drive`/`Sega Genesis` — **не** добавлять (часть названия).
+- `Sega Dreamcast`, `Sega Saturn`, `Sega Game Gear` — **есть**.
+
+**4. Дубли (проверка):** пара не должна быть дублем, если `typeGoodId` или `editionId` разные (`Tails` ≠ `Knuckles`).
+
+**5. Издатели (уточнение):** `Limited Rare Games` ≠ `Limited Run Games`, `Super Rare Games` ≠ `Limited Run Games`. Искать **точно**, не по подстроке `limited`.
+
+**6. `Steelbook` (3 роли):**
+- **Тип** (`Steelbook Без Игры`) — скобка → `typeGoodId = steelbook`.
+- **Издание** (`Steelbook Edition`) — с `Edition` → `editionId = steelbook`.
+- **Часть названия** (`Mortal Kombat 1 Steelbook (Steelbook Без Игры)`) — вне скобок **без** `Edition` → **не трогать**.
+
+**7. Персонажи (`Tails`/`Knuckles`):** для **не-игр** (`gamepad`, `figure`, `toy`, `card`, `steelbook`, `badge`, `sticker`) — это **издание**. Для **игр** — **не** издание (оставить в `baseGameName`).
+
+**8. `typeGoodId = None` на шаге 7:** персонаж **не** вырезается (тип неизвестен). Остаётся в `baseGameName`.
+
+## 2026-11-12 — Ассемблирование парсера: гибрид нашего и внешнего решения
+
+**Контекст:** проанализировали внешнее решение (автономный парсер `parser/` для Excel: `normalizer`, `classifier`, `extractor`, `validator`, `writer`, `dictionaries`). Прогнали на наших данных: у внешнего — ~48 ошибок из 2333, у нашего — больше. Решение: **ассемблировать подходы**, взяв лучшее из обоих, с сохранением наших принципов (БД, справочники, тесты).
+
+### Принятые решения (не переспрашивать)
+
+**1. Модульность — берём внешнюю (дробную).**
+Новая структура `src/parsers/`:
+- `normalizer.py` — `clean_text`, `clean_tail`, `detect_product_type`.
+- `dictionaries.py` — **все** словари (наши + внешние), объединённые.
+- `classifier.py` — `classify_fragment` (обработка скобок и остатка).
+- `extractor.py` — `parse_name` (обёртка: скобки → остаток → сборка).
+- `validator.py` — `validate_row` → `parse_status`.
+- `edition_resolver.py` — поиск/создание издания (с проверкой дублей).
+
+`src/scripts/parse_names.py` — тонкая обёртка (БД → БД).
+
+**2. Тесты по модулям.**
+- `tests/unit/parser_tests/` — новые тесты по модулям: `test_normalizer.py`, `test_classifier.py`, `test_extractor.py`, `test_validator.py`, `test_edition_resolver.py`.
+- Наш `tests/unit/test_parse_names.py` остаётся как **интеграционный** (end-to-end, БД).
+- Дополнительно: прогнать внешние 42 теста на нашем коде (адаптировав импорты) — для сверки логики.
+
+**3. Два прохода + явный порядок внутри второго.**
+- Проход 1: скобки (`classify_fragment` на каждую) — изолированно (как у внешних).
+- Проход 2: остаток — с **фиксированным порядком** (тип → bundle → лицензия → издатель → media → регион → платформа → anniversary → edition regex → generic edition). Наш опыт + их изоляция.
+
+**4. Словари — объединяем.**
+- `TYPE_MAP`, `BUNDLE_MARKERS`, `STEELBOOK_MARKERS`, `PLATFORM_ALIASES`, `PUBLISHERS`, `REGIONS`, `MEDIA_MAP`, `EDITION_RULES` — один файл.
+- Где у внешних `... edition` — смотрим код: если логично, добавляем `edition` к нашим значениям. **Каноническое имя** в `editionTypes` — без `edition` (например, `Collector's`, не `Collector's Edition`).
+- После объединения — прогнать на наших данных, сверить с `Deluxe`/`GOTY`/`First Year`.
+
+**5. Платформа — гибрид.**
+- В скобках: **меньшая** (`PS4/PS5` → `PlayStation 4`) — наш.
+- Вне скобок: **первая** — внешний.
+- `Sega Mega Drive`/`Genesis` — **не** платформа (наш).
+- `Xbox Series` (без X/S) → `Xbox Series X|S` (внешний).
+- `1-2-Switch` — **не** платформа (ловушка внешних).
+
+**6. Регион — вариант внешних.**
+- Ищем **везде** (в скобках и вне).
+- `Испания` → `EU` (внешний). В `parseNote` писать `region_guess: Испания→EU`.
+- Словарь: `NTSC U/C`, `NTSC-U/C`, `PAL`, `EU`, `US`, `Japan`, `JP`, `Asia`, `France`, `Испания`.
+
+**7. Издатель — вариант внешних.**
+- Ищем **везде** (regex по списку, с границами слов).
+- Список — объединяем (наш 30 + внешние 6). `Limited Run Games` ≠ `Limited Rare Games`.
+- В скобках — **вырезаем скобку целиком** (наш урок, чтобы не было `( Run Games)`).
+
+**8. Media — вариант внешних, словарь общий.**
+- `e-key`, `digital key`, `цифровой ключ`, `физическая версия`, `physical`, `картридж` — объединяем с нашим (`physical`, `digital`, `cartridge`, `disc`, `code_in_a_box`, `download_code`).
+- Ищем **везде**. Канонические имена — из `mediaTypes` (БД).
+
+**9. Restore — наш.**
+- `Лицензия` + `Пиратка` → `restore = 1`.
+- Внешний `LICENSE_RE` (только `лицензия`) — дополняем `пиратк`.
+
+**10. Одно поле имени.**
+- Оставляем **одно** `baseGameName`.
+- Нераспознанное — **остаётся** в `baseGameName` + флаг `parseStatus = 'needs_review'`.
+
+**11. Валидация — берём.**
+- `validate_row` → `parseStatus` (`ok`/`needs_review`).
+- Критерии: `baseGameName` не пустой, без `Видеоигра`, `typeGoodId` есть, `platformId` есть (для игр).
+- Поля в `products`: `parseStatus TEXT` (`'ok'`/`'needs_review'`), `parseNote TEXT` (что не так).
+
+**12. Нераспознанное — флаг валидации.**
+- `parseStatus = 'needs_review'` + `parseNote` (например, `unknown_bracket: APEX Predator Pack`).
+- UI: фильтр «требует просмотра» в УТ / «Настройках».
+
+**13. Создание изданий — с проверкой дублей.**
+- `edition_resolver`: ищет точное (нормализованное) в `editionTypes`; если нет — **создаёт** (с `createdBy = 'parser'`, `needsReview = 1`).
+- **Порог**: эвристика создаёт издание, только если слово/фраза **≥ 3–5 символов** и **не** часть `baseGameName` после вырезания. Иначе — `needs_review`, издание **не** создаём.
+- Миграция: сначала объединяем **без** создания (только поиск), сверяем с внешним результатом (48/2333). Потом **включаем** создание с дублями.
+
+**14. `parseNote` — расширенный.**
+- `unknown_bracket: <text>` — нераспознанная скобка.
+- `region_guess: Испания→EU` — эвристика региона.
+- `edition_created: <name>` — создано издание парсером.
+- `edition_suspicious: <name>` — эвристика дала подозрительное (не создали).
+
+### Порядок работ
+1. **Коррекция таблиц** (`schema.sql`): `products` += `parseStatus`, `parseNote`; `editionTypes` += `createdBy`, `needsReview`.
+2. **Объединение словарей** (`dictionaries.py`).
+3. **Модули** (`normalizer`, `classifier`, `extractor`, `validator`, `edition_resolver`).
+4. **Тесты по модулям** (`tests/unit/parser_tests/`).
+5. **Сверка** с внешним результатом (48/2333).
+6. **Включение создания изданий** (с дублями).
+7. **UI**: фильтр «требует просмотра».
+
+**Урок:** ассемблирование подходов даёт лучшее покрытие, чем «только наш» или «только внешний». Но требует аккуратной миграции: сначала без создания, сверка, потом создание.
+
+## 2026-11-12 — Парсер v4.0: ассемблирование подходов (зелёные тесты)
+
+**Сделано:**
+- `src/parsers/` — новые модули: `dictionaries.py` (объединённые словари), `normalizer.py`, `classifier.py`, `extractor.py`, `edition_resolver.py`, `validator.py`. Старый `parser.py` удалён.
+- `src/scripts/parse_names.py` — тонкая обёртка (БД → БД), пишет `parseStatus` + `parseNote` (JSON).
+- `schema.sql`: `products` += `parseStatus`/`parseNote`; `editionTypes` += `createdBy`/`needsReview`; индекс `idx_products_parseStatus`.
+- Тесты: `tests/unit/parser_tests/` (5 файлов, ~90 тестов). Старый `tests/unit/test_parse_names.py` удалён.
+- **173 passed, 1 skipped.**
+
+**Ключевые решения (не переспрашивать):**
+- Два прохода: скобки изолированно → остаток (с фиксированным порядком).
+- Издание: поиск в `editionTypes` → создание (порог ≥3 символа, не число, не стоп-слово), `createdBy='parser'`, `needsReview=1`, имя — как в названии. `normalize_edition` — только для дублей (без пробелов).
+- Платформа: в скобках — меньшая; `xbox series` → `Xbox Series`; `Sega Mega Drive`/`Genesis` — не платформа.
+- Регион: ищем везде; `Испания` → `EU` + `parseNote region_guess`.
+- Media: объединены (e-key, цифровой ключ, картридж).
+- Restore: `Лицензия` + `Пиратка`.
+- Одно поле имени: `baseGameName` (с мусором) + `parseStatus`/`parseNote` (флаг).
+- `test_parse_names.py` удалён (устарел, `parser_tests/` + `test_extractor.py` покрывают).
+
+**Дальше:** пересборка БД через `pipeline.py`, сверка с внешним результатом (48/2333), UI-фильтр «требует просмотра».
+
+## 2026-11-12 — Парсер v4.0: стабильные тесты + pipeline с тестами
+
+**Сделано:**
+- Парсер v4.0 (модули `src/parsers/`), тесты `tests/unit/parser_tests/` (5 файлов).
+- `PLATFORM_ALIASES` сверен с seed (`Nintendo Switch 1`, `Xbox One` — меньшая; `NES` → `Nintendo NES`; `XBX` → `Xbox Series`).
+- `BUNDLE_MARKERS` += `set`.
+- `classify_fragment`: порядок — платформа **раньше** издателя (Sega Dreamcast → платформа, не издатель).
+- `extractor.replace_group`: `STEELBOOK_MARKERS` → не `unknown_bracket`.
+- `validator`: `platformId` обязателен для `game`/`bundle`, не обязателен для `steelbook`/`gamepad`/...
+- `export_xlsx.py`: листы `parsed` (ok), `review` (needs_review), `duplicates` (6 полей + `restore` + `typeGoodId`).
+- `pipeline.py`: `step_tests` (pytest перед init_db, `--skip-tests` для быстрого прогона).
+- **179 passed, 1 skipped.**
+
+**Pipeline (последний прогон):**
+- products: 2333, salesOrders: 6261, salesOrderItems: 6132.
+- parseStatus: ok 2289, needs_review 44 (unknown_bracket 41, edition_suspicious 2, region_guess 1).
+- editionTypes: seed 50, parser 68 (needsReview=1).
+- statuses: 13 (10 seed + 3 от OZON).
+
+**Ключевые решения (не переспрашивать):**
+- Платформа в скобках — меньшая (`PS4/PS5` → `PlayStation 4`, `NSW/NSW2` → `Nintendo Switch 1`, `XO/XS` → `Xbox One`).
+- Платформа раньше издателя (чтобы `Sega Dreamcast` не давал `publisher=Sega`).
+- Платформа обязательна для `game`/`bundle`; для `steelbook`/`gamepad`/... — нет.
+- `Steelbook Без Игры` — не `unknown_bracket` (тип уже `steelbook`).
+- Дубли: `baseGameName` + `platformId` + `editionId` + `regionId` + `mediaTypeId` + `publisherId` + `typeGoodId` + `restore` (NULL ≠ значение).
+- `parseNote` — JSON-список (`unknown_bracket`, `region_guess`, `edition_created`, `edition_suspicious`).
+- `pipeline.py` — `step_tests` (pytest, `--skip-tests`), падение тестов → stop.
+
+**Дальше:** прогон `export_xlsx.py`, проверка дублей (должны быть реальные), UI-фильтр «требует просмотра».
+
+## 2026-11-12 — Парсер v4.0 готов, pipeline работает. Дальше — веб под v3.1
+
+**Контекст:** завершён рефакторинг парсера (ассемблирование нашего и внешнего подходов). Pipeline end-to-end работает. На сервере (`https://only-limited-magazin.ru`) — **старый v2** (роутеры на схеме `product`/`listing`/`posting`), на локально — **v3.1** (схема `products`/`listings`/`salesOrders`/...). Нужно переписать веб под v3.1.
+
+### Что сделано (парсер v4.0)
+
+**Модули `src/parsers/`:**
+- `dictionaries.py` — объединённые словари (наши + внешние): `TYPE_MAP`, `PLATFORM_ALIASES`, `REGIONS`, `PUBLISHERS` (31), `MEDIA_MAP`, `EDITION_RULES`, `BUNDLE_MARKERS` (+`set`), `STEELBOOK_MARKERS`, `LICENSE_RE` (+`пиратка`).
+- `normalizer.py` — `clean_text`, `clean_tail`, `detect_product_type`, `normalize_edition` (без пробелов — для дублей), `normalize_for_match`.
+- `classifier.py` — `classify_fragment` (порядок: лицензия → media → регион → платформа → издатель → anniversary → edition regex → generic edition), `extract_generic_edition`, `remove_bundle_phrase`. **Платформа раньше издателя** (Sega Dreamcast → платформа, не издатель).
+- `extractor.py` — `parse_name` (два прохода: скобки изолированно → остаток). `STEELBOOK_MARKERS` → не `unknown_bracket`. Валидация через `validate_row`.
+- `edition_resolver.py` — поиск/создание издания (порог ≥3 символа, не число, не стоп-слово; `createdBy='parser'`, `needsReview=1`, имя — как в названии).
+- `validator.py` — `validate_row` → `parseStatus` (`ok`/`needs_review`). `platformId` обязателен для `game`/`bundle`.
+- `src/scripts/parse_names.py` — тонкая обёртка (БД → БД), пишет `parseStatus` + `parseNote` (JSON).
+
+**Схема (`schema.sql`):**
+- `products` += `parseStatus TEXT DEFAULT 'ok'`, `parseNote TEXT`.
+- `editionTypes` += `createdBy TEXT DEFAULT 'seed'`, `needsReview INTEGER DEFAULT 0`.
+- Индекс `idx_products_parseStatus`.
+
+**Тесты:**
+- `tests/unit/parser_tests/` — 5 файлов (`test_normalizer`, `test_classifier`, `test_extractor`, `test_edition_resolver`, `test_validator`), ~90 тестов.
+- Старый `tests/unit/test_parse_names.py` — **удалён** (устарел).
+- **179 passed, 1 skipped.**
+
+**Pipeline:**
+- `step_tests` (pytest перед init_db, `--skip-tests` для быстрого прогона). Падение тестов → stop.
+- `step_check` — `parseStatus` counts, `parseNote` по типам, `editionTypes` по `createdBy`.
+- **Результат:** products 2333, salesOrders 6263, salesOrderItems 6135. `parseStatus`: ok 2306, needs_review 27. `parseNote`: `unknown_bracket` 25, `edition_suspicious` 2, `region_guess` 1, `edition_created` 68. `editionTypes`: seed 50, parser 68 (`needsReview=1`). `duplicates`: **0 пар** (ложные ушли после `typeGoodId` в ключе).
+
+**Экспорт:**
+- `src/scripts/export_xlsx.py` — 3 листа: `parsed` (ok, 2306), `review` (needs_review, 27), `duplicates` (0). Колонки: `productId`, `offerId`, `name`, `baseGameName`, `type`, `platform`, `edition`, `publisher`, `region`, `media`, `restore`, `parseStatus`, `parseNote`.
+
+### Ключевые решения (не переспрашивать)
+
+- **Платформа в скобках — меньшая:** `PS4/PS5` → `PlayStation 4`, `NSW/NSW2` → `Nintendo Switch 1`, `XO/XS` → `Xbox One`. `XBX` → `Xbox Series`.
+- **Платформа раньше издателя** (чтобы `Sega Dreamcast` не давал `publisher=Sega`).
+- **`Sega Mega Drive` / `Genesis`** — **не** платформа (часть названия).
+- **`Испания` → `EU`** + `parseNote region_guess`.
+- **`Лицензия` + `Пиратка`** → `restore = 1`.
+- **`Steelbook Без Игры`** → `typeGoodId=steelbook`, не `unknown_bracket`.
+- **Платформа обязательна** для `game`/`bundle`; для `steelbook`/`gamepad`/... — нет.
+- **Издание:** поиск в `editionTypes` → создание (порог, дубли, `createdBy='parser'`). Имя — как в названии.
+- **`normalize_edition`** — без пробелов (`Stellar Steelbook` = `Stellar-Steelbook`).
+- **Одно поле имени:** `baseGameName` (с мусором) + `parseStatus`/`parseNote`.
+- **`parseNote`** — JSON-список (`unknown_bracket`, `region_guess`, `edition_created`, `edition_suspicious`).
+- **Дубли:** `baseGameName` + `platformId` + `editionId` + `regionId` + `mediaTypeId` + `publisherId` + `typeGoodId` + `restore` (NULL ≠ значение).
+- **`init_db`** удаляет БД и создаёт заново (без `ALTER TABLE`).
+- **`.env`** — не присылать ключи в чат.
+
+### Что не сделано (на потом, не блокер)
+
+- `(3)` в `Little Nightmares III (3)` — `unknown_bracket: 3` (мелочь).
+- `Slitterhead Day 1 Edition` — `edition_suspicious: 1` (добавить `day 1` в `EDITION_RULES`).
+- `(Physical Edition)` → `unknown_bracket: Edition` (мелочь).
+- `pipeline_config` из «Настроек» (сейчас — JSON-файл).
+
+### Дальше — веб под v3.1 (главная задача)
+
+**Проблема:** на сервере — v2 (роутеры на `product`/`listing`/`stock_manual`/`posting`/`posting_item`/`buyer`). На v3.1 — `products`/`listings`/`stocks`/`salesOrders`/`salesOrderItems`/`buyers`. Роутеры **упадут**.
+
+**План (по шагам):**
+1. **`web/routers/keeper.py`** — инвентаризация (`products` + `stocks` + `warehouses` + `platforms`), УТ (`products` + `listings` + `stocks`), `save_product` (новый), `delete_product` (проверка `salesOrderItems`), фильтр `parseStatus='needs_review'`.
+2. **`web/routers/seller.py`** — экран (`products` + `listings` + `stocks`), ручная продажа (`salesOrders` + `salesOrderItems` + `stocks` + `buyers`), история (`salesOrders` + `salesOrderItems`). Удалить `sync_ozon` (синхронизация — через `pipeline`/`settings`), `preorders` (нет `is_preorder` в v3.1).
+3. **`web/routers/settings.py`** — справочники (v3.1: `warehouseId`, `platformId`, `editionId`, `publisherId`, `regionId`), `run_action` (fetch_products/fetch_postings), `review_edition` (снять `needsReview`).
+4. **`web/routers/api.py`** — `rates`, `add_type`, `add_edition` (createdBy='manual'), `add_publisher`, `add_platform`, `add_warehouse` (перенести из keeper).
+5. **Шаблоны (10):** `index`, `keeper_menu`, `keeper_inventory`, `manage_products` (+ колонка `parseStatus` + кнопка «Требует просмотра»), `add_product` (`save_product`), `seller`, `manual_sale`, `manual_sales_list`, `settings_menu`. Удалить: `sync_ozon`, `preorders_list`, `backup_menu`, `edit_product`, `keeper.html`.
+6. **`app.py`** — ок (уже v3.1).
+
+**Порядок:** HISTORY/CONTEXT → `keeper.py` → `seller.py` → `settings.py` → `api.py` → шаблоны → тесты → деплой.
+
+**Уроки:**
+- TDD работает: тесты описывают желаемое, код подгоняется.
+- Ассемблирование подходов даёт лучшее покрытие, чем «только наш» или «только внешний».
+- `parseNote` — JSON-список (проще парсить в UI).
+- `duplicates` — только после `typeGoodId` в ключе.
+- Pipeline с тестами (step_tests) — страховка от регрессий.
+
+## 2026-11-13 — Глобальное обновление загрузки, интерфейса и тестов
+
+**Что сделано:**
+
+**Загрузка данных (`fetch_products.py`, `fetch_postings.py`):**
+- Убраны временные файлы (работаем в памяти).
+- `fetch_products` теперь обновляет **только цены** (`listings.price`) для существующих товаров. Названия и ручные правки не затираются.
+- `fetch_postings` добавлена дедупликация по `marketplaceOrderId`. Если заказ уже есть — пропускаем. Если даты/суммы не совпадают — пишем в `warnings` (отчет "Чудеса").
+- Отчеты о загрузке теперь сохраняются в `logs/*.txt` и в таблицу `syncLog` (поле `notes`).
+- Исправлена ошибка `UnicodeEncodeError` (заменили `→` на `->` для Windows).
+
+**Интерфейс Настроек (`settings_menu.html`):**
+- Добавлена кнопка «📜 История загрузок» (модалка с таблицей отчетов из `syncLog`).
+- Блок «Справочники изменения» переделан: один выпадающий список для типа, один для значения, и 3 кнопки (Добавить/Изменить/Удалить).
+- Удаление из справочников защищено проверкой на использование в товарах (нельзя удалить `Standard`, если оно есть у товара).
+- Добавлена обработка ошибок БД (вместо `undefined` теперь понятный текст, например, «Такая запись уже существует»).
+
+**Интерфейс Кладовщика (`manage_products.html`, `keeper_inventory.html`):**
+- Кнопка «Сохранить» у каждого товара. Меняет цвет, если изменены любые параметры (склад, кол-во, цены).
+- Модалка подтверждения перед сохранением и удалением.
+- Удаление товара проверяет `salesOrderItems`. Если есть продажи — ошибка (не удаляем). Если нет — физическое удаление.
+- Убраны старые кнопки «Ред./Копия/Удалить» (заменены на иконки ✏️📋🗑️).
+- В УТ добавлена колонка «Заметка» (`parseNote`).
+- Убран `LIMIT 500` (теперь выводятся все 2333 товара).
+- Справочники для фильтров берутся из БД, а не из строк (теперь полный список регионов и платформ).
+
+**Тесты (добавлено 14 новых, итого 193 passed):**
+- `tests/api/test_keeper.py` — тесты инвентаризации, цен, удаления (с проверкой продаж) и сохранения товаров (с проверкой дублей).
+- `tests/api/test_settings.py` — тесты добавления/удаления справочников (с защитой от удаления используемых) и истории загрузок.
+- Починены падения `database is locked` (добавлены `commit()`).
+
+**Ключевые решения:**
+- Загрузка работает без временных файлов на диске.
+- Названия товаров при обновлении из OZON не затираются.
+- `parseStatus` и `parseNote` — только для фильтрации и подсказок в UI.
+- Удаление справочников заблокировано, если они используются в товарах (защита целостности БД).
+
+
+## 2026-11-14 — Зафиксированная задача: уникальность артикула
+
+**Контекст:** при загрузке карточек из OZON и редактировании товаров вручную мы можем наткнуться на ситуацию, когда один и тот же `offerId` (Артикул) используется в разных магазинах (LimitedGames и ConsoleGames) или привязан к разным площадкам.
+
+**Требование:**
+- Артикул (`offerId`) должен быть привязан к конкретной площадке (например, `marketplaceId`).
+- Проверка уникальности артикула должна работать **в рамках одной площадки**. 
+- На разных площадках (OZON и Avito) артикулы могут совпадать.
+
+**Статус:** Отложено. Требует изменения схемы БД (добавление `marketplaceId` в `products` или связка `listing` -> `offerId` -> `marketplaceId`) и переписывания логики проверки дублей.
+## 2026-11-14 — Технический долг: `offerId` должен быть в `listings`
+
+**Проблема:** сейчас `offerId` (артикул) хранится в таблице `products`. Это неверно для мультиплощадочности. Один и тот же товар может иметь разные артикулы на OZON, Avito и в ручном магазине.
+
+**Правильная схема:**
+- `products.offerId` — **удалить**.
+- `listings.offerId` — **добавить**.
+- `offerId` уникален **в связке** `(marketplaceId, offerId)`.
+
+**Что это затрагивает:**
+- Парсер (`fetch_products`, `fetch_postings`) должен искать товар по `(storeId, offerId)`, а не по глобальному `offerId`.
+- Проверка дублей при создании товара вручную — должна проверять `offerId` только в рамках выбранной площадки.
+## 2026-11-14 — Рефакторинг UI и передача проекта (итог)
+
+**Контекст:** в попытках ускорить интерфейс, убрать дублирование и добавить валидацию мы внесли ряд изменений. Часть из них оказалась неудачной (сломали сортировку в УТ, потеряли поле «Название», внесли баги с ценами). Принято решение зафиксировать текущее состояние и передать проект.
+
+### 1. Что хотели сделать с `_ui.html` (Единая библиотека полей)
+**Цель:** убрать дублирование HTML-кода на разных страницах. Если мы меняем стиль поля, шаг цены или правило (например, запрет на минус), это должно меняться в одном файле.
+**Как реализовали:** создали `web/templates/_ui.html` с макросами (`money`, `quantity`, `year`, `select_global`, `inline_money`, `inline_qty`).
+**Проблема:** 
+- Макросы `select_global` пытались использовать глобальные справочники (`GLOBAL_platforms`), которые не грузились. 
+- Пришлось передавать списки прямо из роутеров (что правильно, но макросы оказались слишком запутанными).
+- Добавление `oninput="if(this.value < 0) this.value = ''"` работало, но при копировании цен из базы в форму они выводились с плавающей точкой (например, `1.11111111`), а не как деньги (`111.11`).
+**Текущее состояние:** макросы есть, но их использование требует аккуратности. В `add_product.html` мы перешли на прямые `input` для цен, чтобы обойти баг с округлением.
+
+### 2. Какие тесты сделаны, какие планировали
+**Сделано:**
+- `tests/unit/parser_tests/` — 5 файлов (парсер, классификатор, резолвер изданий, валидатор). 90+ тестов.
+- `tests/unit/test_db.py`, `test_seed.py`, `test_pragma.py` — 23 теста.
+- `tests/unit/test_fetch_products.py`, `test_fetch_postings.py` — 39 тестов.
+- `tests/api/test_keeper.py` — тесты инвентаризации, цен, удаления, сохранения (12 тестов).
+- `tests/api/test_settings.py` — тесты справочников (refs) и истории (history) (6 тестов).
+- **Итого: 193 теста (все зелёные).**
+
+**Планировали:**
+- Тесты для продавца (`tests/api/test_seller.py`): создание ручного заказа, проверка списания остатков, ошибки при недостатке товара.
+- Тесты на `_ui.html` (проверка, что макросы рендерят правильные `type="number"` и `min="0"`).
+- Тесты на загрузку данных (интеграционные, с моками API OZON).
+
+### 3. Новая структура файлов (актуальная)
+**`web/app.py`** — чистый, без дублирования `update_global_dicts`. Вызывает `init_globals(templates)`.
+**`web/globals.py`** — хранит `_templates` и обновляет `GLOBAL_*` (но в шаблонах мы стараемся использовать данные из роутеров, чтобы избежать рассинхрона).
+**`web/routers/`** — разбит на пакеты:
+- `keeper/` (`menu.py`, `inventory_list.py`, `inventory_update.py`, `products_list.py`, `products_price.py`, `products_delete.py`, `products_save.py`, `forms_add.py`, `forms_edit.py`, `forms_copy.py`, `_dicts.py`, `_duplicates.py`, `_ozon_price.py`).
+- `seller/` (`dashboard.py`, `manual_sale.py`, `orders.py`).
+- `settings/` (`menu.py`, `stores.py`, `run_action.py`, `update_item.py`, `history.py`, `refs.py`, `backup.py`, `restore.py`, `_dicts.py`).
+- `_shared/` (`common.py` — `error`, `ok`, `to_int`, `to_float`).
+**`web/templates/`** — `_ui.html` (макросы), `base.html`, `index.html`, `keeper_menu.html`, `keeper_inventory.html`, `manage_products.html`, `add_product.html`, `seller_dashboard.html`, `seller_orders.html`, `settings_menu.html`.
+
+### 4. Известные баги и технический долг (на момент передачи)
+1. **Платформы 4/5:** в `seed_reference_data.py` есть строка `('PlayStation', '4/5', None, 0)`. Она не нужна для новых товаров, но пока остаётся в базе.
+2. **Сортировка в УТ:** реализована через перезагрузку страницы (SQL). Работает, но JS-сортировка на клиенте была удалена.
+3. **Окно «Сохранено»:** при нажатии «Сохранить» в УТ данные сохраняются, но страница не перезагружается (нужно добавить `location.reload()` или обновление строки).
+4. **`offerId` в `products`:** архитектурно неверно. Артикул должен быть в `listings` и привязан к `marketplaceId` (технический долг, записан ранее).
+5. **Валидация на уровне БД:** добавлены `CHECK` в `schema.sql` для `cost`, `price`, `quantity` (нужно пересобрать базу через `pipeline`).
+
+**Урок:** не пытаться «чинить» всё сразу. Один баг — один фикс — один прогон тестов.

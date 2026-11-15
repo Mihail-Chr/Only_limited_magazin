@@ -9,6 +9,7 @@ Thumbs.db
 # Скрипты и ключи
 scratch/
 *.json
+!pipeline_config.json
 .env
 
 # Секреты и пароли (никогда не выкладывать!)

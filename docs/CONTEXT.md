@@ -364,3 +364,113 @@
 **Итог:** Парсер отрабатывает 80% данных корректно. Остальные 20% — это уникальные издания (вроде `Stellar`, `Journey`, `Crimson Knight`), которые пока не в `seed`. В «Настройках» можно будет добавить их вручную.
 
 **Следующий шаг:** API-тесты (`tests/test_api.py`) и обновление Git (фиксация текущего состояния ветки).
+
+## 📅 2026-11-12 — Парсер v4.0 готов, pipeline работает, дальше — веб под v3.1
+
+**Ветка:** `refactor/schema-audit`.
+**Сайт:** **https://only-limited-magazin.ru** — работает, но на **v2** (роутеры на `product`/`listing`/`posting`). На v3.1 — **упадёт**.
+**Сервер:** AdminVPS (79.133.183.30), Nginx + Uvicorn (systemd).
+
+**Что готово (v3.1):**
+- `schema.sql` — 35 таблиц + `products.parseStatus`/`parseNote`, `editionTypes.createdBy`/`needsReview`, индекс `idx_products_parseStatus`.
+- `src/parsers/` — 6 модулей (`dictionaries`, `normalizer`, `classifier`, `extractor`, `edition_resolver`, `validator`).
+- `src/scripts/parse_names.py` — обёртка (БД → БД, `parseStatus` + `parseNote` JSON).
+- `src/scripts/fetch_products.py`, `fetch_postings.py` — универсальные (OzonClient).
+- `src/scripts/export_xlsx.py` — 3 листа (`parsed`, `review`, `duplicates`).
+- `pipeline.py` — `step_tests` + 6 шагов + `step_check` (parseStatus, parseNote, editionTypes).
+- Тесты: **179 passed, 1 skipped** (`tests/unit/parser_tests/` — 5 файлов).
+
+**Pipeline (последний прогон):**
+- products: 2333, salesOrders: 6263, salesOrderItems: 6135.
+- `parseStatus`: ok 2306, needs_review 27.
+- `parseNote`: `unknown_bracket` 25, `edition_suspicious` 2, `region_guess` 1, `edition_created` 68.
+- `editionTypes`: seed 50, parser 68 (`needsReview=1`).
+- `duplicates`: **0 пар**.
+
+**Ключевые решения (не переспрашивать):**
+- Платформа в скобках — меньшая (`PS4/PS5` → `PlayStation 4`, `NSW/NSW2` → `Nintendo Switch 1`, `XO/XS` → `Xbox One`).
+- Платформа раньше издателя (Sega Dreamcast → платформа, не издатель).
+- `Sega Mega Drive`/`Genesis` — не платформа (часть названия).
+- `Испания` → `EU` + `parseNote region_guess`.
+- `Лицензия` + `Пиратка` → `restore = 1`.
+- `Steelbook Без Игры` → `steelbook`, не `unknown_bracket`.
+- Платформа обязательна для `game`/`bundle`; для `steelbook`/`gamepad`/... — нет.
+- Издание: поиск в `editionTypes` → создание (порог ≥3, не число, не стоп-слово; `createdBy='parser'`, `needsReview=1`). Имя — как в названии.
+- `normalize_edition` — без пробелов (для дублей).
+- Одно поле имени: `baseGameName` + `parseStatus`/`parseNote`.
+- `parseNote` — JSON-список (`unknown_bracket`, `region_guess`, `edition_created`, `edition_suspicious`).
+- Дубли: `baseGameName` + `platformId` + `editionId` + `regionId` + `mediaTypeId` + `publisherId` + `typeGoodId` + `restore`.
+- `init_db` удаляет БД и создаёт заново (без `ALTER TABLE`).
+- `.env` — не присылать ключи в чат.
+
+**Текущая задача:** переписать `web/routers/*` и шаблоны под v3.1.
+
+**План (по шагам):**
+1. `keeper.py` — инвентаризация, УТ, `save_product` (новый), `delete_product`, фильтр `parseStatus='needs_review'`.
+2. `seller.py` — экран, ручная продажа (`salesOrders`/`salesOrderItems`/`stocks`/`buyers`), история. Удалить `sync_ozon`, `preorders`.
+3. `settings.py` — справочники (v3.1 ID), `run_action`, `review_edition`.
+4. `api.py` — `rates`, `add_type`, `add_edition` (createdBy='manual'), `add_publisher`, `add_platform`, `add_warehouse`.
+5. Шаблоны (10): `index`, `keeper_menu`, `keeper_inventory`, `manage_products` (+ `parseStatus` + «Требует просмотра»), `add_product` (`save_product`), `seller`, `manual_sale`, `manual_sales_list`, `settings_menu`. Удалить: `sync_ozon`, `preorders_list`, `backup_menu`, `edit_product`, `keeper.html`.
+6. `app.py` — ок (уже v3.1).
+
+**Порядок:** HISTORY/CONTEXT → `keeper.py` → `seller.py` → `settings.py` → `api.py` → шаблоны → тесты → деплой.
+
+**Отложено:**
+- `merge_duplicates` (согласие владельца).
+- `pipeline_config` из «Настроек».
+- UI-фильтр «требует просмотра» (в УТ/«Настройках»).
+- `review` (27 `needs_review`) — править в UI.
+- `editionTypes` `needsReview=1` (68) — снять через `review_edition`.
+
+**Прогноз:** до «наследника» — 2–4 сессии (по одному файлу) или 1–2 (пакетами). **Сейчас** — обновить HISTORY/CONTEXT (страховка), потом `keeper.py`.
+
+## 📅 2026-11-13 — Стабильная версия (Загрузка, UI, Тесты)
+
+**Ветка:** `refactor/schema-audit`.
+**Сайт:** **https://only-limited-magazin.ru** — работает (на сервере старая версия, требуется деплой).
+**Сервер:** AdminVPS.
+
+**Что готово:**
+- Схема v3.1 (35 таблиц + `parseStatus`, `parseNote`, `createdBy`, `needsReview`, `syncLog.notes`).
+- Парсер v4.0 (обновление названий только для новых товаров).
+- `fetch_products` (обновляет только цены для старых, создает новых).
+- `fetch_postings` (дедупликация по `marketplaceOrderId`, отчеты "Чудеса").
+- `pipeline.py` — полный цикл (тесты → БД → загрузка → парсинг → отчет).
+- UI Настроек (история загрузок, справочники с защитой от удаления).
+- UI Кладовщика (поштучное сохранение, иконки, валидация).
+- **193 passed, 1 skipped** (тесты на парсер, загрузку, API Кладовщика и Настроек).
+
+**Текущая задача:** Написать `README.md` для папок и обновить документацию. Затем — **JSON Экспорт/Импорт справочников** (для удобного бэкапа).
+
+**План:**
+1. Разложить `README.md` по папкам (`docs/`, `src/`, `tests/`, `web/` и т.д.).
+2. Сделать экспорт/импорт справочников в JSON.
+3. Обновить `README.md` в корне (описание проекта).
+4. Деплой на сервер.
+
+**Отложено:**
+- `merge_duplicates` (согласие владельца).
+- `pipeline_config` из «Настроек».
+
+## 📅 2026-11-14 — Передача проекта (текущий статус)
+
+**Ветка:** `refactor/schema-audit`.
+**Сайт:** локально работает, на сервере старая версия.
+**Тесты:** **193 passed, 1 skipped.**
+
+**Что сделано (v3.1):**
+- Схема БД с `CHECK`-ограничениями (цены, количества).
+- Парсер v4.0 (работает, 90+ тестов).
+- Загрузка товаров и заказов (в памяти, без временных файлов, дедупликация).
+- UI Кладовщика (инвентаризация, УТ, формы add/edit/copy) — частично стабильно, есть баги (см. HISTORY).
+- UI Продавца (корзина, история заказов).
+- UI Настроек (справочники, история загрузок, бэкап).
+- `_ui.html` — библиотека макросов.
+
+**Текущая задача:** стабилизировать UI (перезагрузка после сохранения, дубли платформ, баг с ценами).
+
+**Технический долг:**
+- Перенести `offerId` из `products` в `listings` (связка с `marketplaceId`).
+- Удалить `4/5` из `seed_reference_data.py`.
+- Дописать тесты для Продавца.
+- Добавить `location.reload()` после сохранения в УТ.

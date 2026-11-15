@@ -1,15 +1,13 @@
-"""
-Заполнение справочников (v3.1).
+#"""
+#Заполнение справочников (v3.2).
 
-Запуск: python -m src.scripts.seed_reference_data
-
-Идемпотентен: INSERT OR IGNORE (повторный запуск не ломает).
-"""
+#Запуск: python -m src.scripts.seed_reference_data
+#Идемпотентен: INSERT OR IGNORE.
+#"""
 from src.db import get_conn
 
 
 def seed_modules(conn):
-    """Модули (feature flags)."""
     modules = [
         ('purchase', 0, 10, 'Закупка (purchaseOrders, shipments)'),
         ('sale', 1, 20, 'Продажа (salesOrders, payouts)'),
@@ -20,13 +18,12 @@ def seed_modules(conn):
     ]
     for name, enabled, sort, desc in modules:
         conn.execute(
-            "INSERT OR IGNORE INTO modules (moduleName, isEnabled, sortOrder, description, versionAdded) VALUES (?, ?, ?, ?, '3.1')",
+            "INSERT OR IGNORE INTO modules (moduleName, isEnabled, sortOrder, description, versionAdded) VALUES (?, ?, ?, ?, '3.2')",
             (name, enabled, sort, desc)
         )
 
 
 def seed_currencies(conn):
-    """Валюты (RUB id=1 — явно, для salesOrders.currencyId)."""
     currencies = [
         (1, 'RUB', 'Российский рубль', '₽', 10),
         (2, 'USD', 'Доллар США', '$', 20),
@@ -42,7 +39,6 @@ def seed_currencies(conn):
 
 
 def seed_regions(conn):
-    """Регионы (с полными названиями)."""
     regions = [
         ('RU', 'Россия', 10),
         ('US', 'США', 20),
@@ -62,7 +58,6 @@ def seed_regions(conn):
 
 
 def seed_platforms(conn):
-    """Платформы (с версиями, ревизиями, портативностью)."""
     platforms = [
         ('PC', 'Windows', None, 0),
         ('Steam Deck', 'LCD/OLED', None, 0),
@@ -72,7 +67,7 @@ def seed_platforms(conn):
         ('PlayStation', '4', None, 0),
         ('PlayStation', '4', 'Slim', 0),
         ('PlayStation', '4', 'Pro', 0),
-        ('PlayStation', '4/5', None, 0),
+        
         ('PlayStation', '3', None, 0),
         ('PlayStation', '3', 'Slim', 0),
         ('PlayStation', '3', 'Super Slim', 0),
@@ -88,12 +83,12 @@ def seed_platforms(conn):
         ('Xbox', '360', 'S', 0),
         ('Xbox', '360', 'E', 0),
         ('Xbox', 'Original', None, 0),
-        ('Xbox', 'One / Series', None, 0),
+        
         ('Nintendo Switch', '2', None, 0),
         ('Nintendo Switch', '1', None, 0),
         ('Nintendo Switch', '1', 'OLED', 0),
         ('Nintendo Switch', '1', 'Lite', 1),
-        ('Nintendo Switch', '1 / 2', None, 0),
+        
         ('Nintendo', 'Wii U', None, 0),
         ('Nintendo', 'Wii', None, 0),
         ('Nintendo', 'GameCube', None, 0),
@@ -105,7 +100,7 @@ def seed_platforms(conn):
         ('Nintendo', 'Game Boy Advance', None, 1),
         ('Nintendo', 'Game Boy Color', None, 1),
         ('Nintendo', 'Game Boy', None, 1),
-        ('Sega', 'Mega Drive', None, 0),
+        # Sega (без Mega Drive — часть названия)
         ('Sega', 'Dreamcast', None, 0),
         ('Sega', 'Saturn', None, 0),
         ('Sega', 'Game Gear', None, 1),
@@ -121,7 +116,6 @@ def seed_platforms(conn):
 
 
 def seed_typeGoods(conn):
-    """Типы товаров."""
     types = [
         ('game', 10), ('bundle', 20), ('steelbook', 30), ('gamepad', 40),
         ('joystick', 50), ('collectorBox', 60), ('accessory', 70),
@@ -136,10 +130,9 @@ def seed_typeGoods(conn):
 
 def seed_editionTypes(conn):
     """
-    Типы изданий — ВСЁ, что парсер может найти (точное совпадение, нормализованное).
-
-    Источник истины. Парсер НЕ создаёт. Если фразы нет — editionId = None.
-    GOTY и Game of the Year — ОБА (разные написания в данных).
+    Издания (v3.2). Без Black, Vengeance, Platinum, Mirror.
+    Collection — только Anniversary Collection.
+    Персонажи (Tails/Knuckles/Sonic/Green Hill Zone) — только для не-игр.
     """
     editions = [
         # Базовые
@@ -168,7 +161,6 @@ def seed_editionTypes(conn):
         ('Картонный бокс', 220),
         ('Ultimate 30th Anniversary', 230),
         ('Essence of Art', 240),
-        ('Mirror', 250),
         ("Collector's K.O.", 260),
         ('Vengeance', 270),
         ('Steelbook Premium', 280),
@@ -176,11 +168,10 @@ def seed_editionTypes(conn):
         ('Legendary Edition', 300),
         ('Legendary Edition Steelbook', 310),
         ('Anniversary Collection', 320),
-        ('Collection', 330),
-        # GOTY / Game of the Year — оба (разные написания в данных)
+        # GOTY
         ('GOTY', 340),
         ('Game of the Year', 350),
-        # Готовые фразы (встречаются в данных)
+        # Готовые фразы
         ('First Year', 360),
         ('New Year', 370),
         ('Three Fairies', 380),
@@ -188,12 +179,18 @@ def seed_editionTypes(conn):
         ('Survivor Steelbook', 400),
         ('Survivor', 410),
         ('Legendary', 420),
-        # Одиночные в скобках (бывшие SINGLE_WORD_EDITION_MAP)
-        ('Platinum', 430),
-        ('Black', 440),
-        ('Journey', 470)  
-        # ('Tails', 450),
-        # ('Knuckles', 460),
+        # Реальные (из данных)
+        ('Buster', 430),
+        ('American Wilds', 440),
+        ('Abducted', 450),
+        ('Origins Collection', 460),
+        ('10th Anniversary', 470),
+        ('Journey', 480),
+        # Персонажи (для не-игр)
+        ('Tails', 500),
+        ('Knuckles', 510),
+        ('Sonic', 520),
+        ('Green Hill Zone', 530),
     ]
     for name, sort in editions:
         conn.execute(
@@ -203,7 +200,6 @@ def seed_editionTypes(conn):
 
 
 def seed_publishers(conn):
-    """Издатели."""
     publishers = [
         'Nintendo', 'Sega', 'Sony Interactive Entertainment', 'Microsoft / Xbox Game Studios',
         'Electronic Arts', 'Ubisoft', 'Activision Blizzard', 'Bandai Namco', 'Capcom',
@@ -211,7 +207,8 @@ def seed_publishers(conn):
         '1C', 'Limited Run Games', 'Strictly Limited Games', 'Merge Games', 'NIS America',
         'Idea Factory International', 'Special Reserve Games', 'Super Rare Games',
         'Eastasiasoft', 'Play-Asia', 'Red Art Games', "Pix'n Love",
-        'Signature Edition Games', 'Fangamer', 'iam8bit', 'Retro-Bit'
+        'Signature Edition Games', 'Fangamer', 'iam8bit', 'Retro-Bit',
+        'Limited Rare Games',  # отдельный издатель
     ]
     for name in publishers:
         conn.execute(
@@ -221,17 +218,11 @@ def seed_publishers(conn):
 
 
 def seed_statuses(conn):
-    """Статусы заказов (продажа + закупка)."""
     statuses = [
-        ('paid', 'sale', 10),
-        ('shipped', 'sale', 20),
-        ('received', 'sale', 30),
-        ('refusal', 'sale', 40),
-        ('cancelled', 'sale', 50),
-        ('at_carrier', 'purchase', 60),
-        ('shipped', 'purchase', 70),
-        ('customs', 'purchase', 80),
-        ('out_for_delivery', 'purchase', 90),
+        ('paid', 'sale', 10), ('shipped', 'sale', 20), ('received', 'sale', 30),
+        ('refusal', 'sale', 40), ('cancelled', 'sale', 50),
+        ('at_carrier', 'purchase', 60), ('shipped', 'purchase', 70),
+        ('customs', 'purchase', 80), ('out_for_delivery', 'purchase', 90),
         ('received', 'purchase', 100),
     ]
     for name, stype, sort in statuses:
@@ -242,7 +233,6 @@ def seed_statuses(conn):
 
 
 def seed_mediaTypes(conn):
-    """Типы носителей."""
     media = [
         ('physical', 10), ('digital', 20), ('cartridge', 30),
         ('disc', 40), ('code_in_a_box', 50), ('download_code', 60),
@@ -255,13 +245,9 @@ def seed_mediaTypes(conn):
 
 
 def seed_ageGroups(conn):
-    """Возрастные группы (по умолчанию 25-34 — id=2)."""
     age_groups = [
-        (1, '18-24', 10),
-        (2, '25-34', 20),
-        (3, '35-44', 30),
-        (4, '45-54', 40),
-        (5, '55+', 50),
+        (1, '18-24', 10), (2, '25-34', 20), (3, '35-44', 30),
+        (4, '45-54', 40), (5, '55+', 50),
     ]
     for gid, name, sort in age_groups:
         conn.execute(
@@ -271,10 +257,8 @@ def seed_ageGroups(conn):
 
 
 def seed_adjustmentTypes(conn):
-    """Типы корректировок выплат."""
     types = [
-        ('order_amount', 'Сумма заказа', 10),
-        ('commission', 'Комиссия', 20),
+        ('order_amount', 'Сумма заказа', 10), ('commission', 'Комиссия', 20),
         ('refund', 'Возврат покупателю', 30),
         ('lost_in_delivery', 'Компенсация за потерю при доставке', 40),
         ('lost_in_return', 'Компенсация за потерю при возврате', 50),
@@ -289,7 +273,6 @@ def seed_adjustmentTypes(conn):
 
 
 def seed_warehouses(conn):
-    """Склады (Виталий id=1, Вениамин id=2 — явно)."""
     warehouses = [
         (1, 'warehouse1', 'Виталий', 1, 10),
         (2, 'warehouse2', 'Вениамин', 1, 20),
@@ -302,7 +285,6 @@ def seed_warehouses(conn):
 
 
 def seed_marketplaces(conn):
-    """Площадки продажи (ozon, avito, ym, wb, manual)."""
     marketplaces = [
         ('ozon', 'OZON', 'https://www.ozon.ru', 'RU', 1, 0.45, 1, 10),
         ('avito', 'Avito', 'https://www.avito.ru', 'RU', 1, 0.05, 1, 20),
@@ -320,7 +302,6 @@ def seed_marketplaces(conn):
 
 
 def seed_purchasePlatforms(conn):
-    """Площадки закупки (10)."""
     platforms = [
         ('avito_ru', 'Avito (Россия)', 'https://www.avito.ru', 'RU', 1, 1, 10),
         ('ebay_uk', 'eBay UK', 'https://www.ebay.co.uk', 'GB', 4, 1, 20),
@@ -343,7 +324,6 @@ def seed_purchasePlatforms(conn):
 
 
 def seed_stores(conn):
-    """Магазины (limited_games, console_games, manual)."""
     stores = [
         ('limited_games', 'LimitedGames', 1, 1, 1, 10),
         ('console_games', 'ConsoleGames', 1, 1, 1, 20),
@@ -359,7 +339,6 @@ def seed_stores(conn):
 
 
 def seed_buyers(conn):
-    """Покупатель по умолчанию (Физлицо id=1)."""
     conn.execute(
         "INSERT OR IGNORE INTO buyers (buyerId, buyerNickname, ageGroupId) VALUES (1, 'Физлицо', 2)"
     )
@@ -396,8 +375,7 @@ def main():
         for t in tables:
             count = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
             print(f"  {t}: {count}")
-
-    print("\n✅ Справочники заполнены (v3.1).")
+    print("\n✅ Справочники заполнены (v3.2).")
 
 
 if __name__ == "__main__":

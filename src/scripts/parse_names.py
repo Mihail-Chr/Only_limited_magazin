@@ -1,38 +1,36 @@
 """
-parse_names.py — разбор названий товаров (v3.7).
+parse_names.py — разбор названий товаров (v4.0). Обёртка над src.parsers.
 
-Запуск:
-    python -m src.scripts.parse_names
+Читает products.name, вызывает parse_name, пишет ID + parseStatus + parseNote.
 
-Что делает:
-- Читает products.name (сырое из API).
-- Разбирает через parse_name(name, conn).
-- Обновляет products: typeGoodId, baseGameName, platformId,
-  editionId, publisherId, regionId, mediaTypeId, restore.
+Запуск: python -m src.scripts.parse_names
 """
+import json
 import sys
 from pathlib import Path
 
-# Добавляем корень проекта в sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from src.db import get_conn
-from src.parsers.parser import load_dictionaries, parse_name
+from src.parsers.extractor import load_dictionaries, parse_name
 
 
 def main():
     with get_conn() as conn:
-        # Загружаем справочники в модуль парсера
         load_dictionaries(conn)
 
         rows = conn.execute(
             "SELECT productId, name FROM products WHERE name IS NOT NULL"
         ).fetchall()
 
-        updated = 0
+        total = len(rows)
+        needs_review = 0
 
-        for r in rows:
-            parsed = parse_name(r["name"], conn)
+        for i, r in enumerate(rows):
+            p = parse_name(r["name"], conn)
+
+            # parseNote — список → JSON (для UI)
+            note_json = json.dumps(p["parseNote"], ensure_ascii=False) if p["parseNote"] else None
 
             conn.execute(
                 """
@@ -45,44 +43,38 @@ def main():
                     regionId = ?,
                     mediaTypeId = ?,
                     restore = ?,
+                    parseStatus = ?,
+                    parseNote = ?,
                     updatedAt = datetime('now')
                 WHERE productId = ?
                 """,
                 (
-                    parsed["typeGoodId"],
-                    parsed["baseGameName"],
-                    parsed["platformId"],
-                    parsed["editionId"],
-                    parsed["publisherId"],
-                    parsed["regionId"],
-                    parsed["mediaTypeId"],
-                    parsed["restore"],
+                    p["typeGoodId"],
+                    p["baseGameName"],
+                    p["platformId"],
+                    p["editionId"],
+                    p["publisherId"],
+                    p["regionId"],
+                    p["mediaTypeId"],
+                    p["restore"],
+                    p["parseStatus"],
+                    note_json,
                     r["productId"],
                 ),
             )
-            updated += 1
+
+            if p["parseStatus"] == "needs_review":
+                needs_review += 1
+
+            if (i + 1) % 200 == 0:
+                conn.commit()
+                print(f"  → Обработано: {i + 1}/{total}")
 
         conn.commit()
 
-    print(f"Обработано товаров: {updated}")
-
-    with get_conn() as conn:
-        print("\nСлучайные примеры после разбора:")
-        samples = conn.execute("""
-            SELECT productId, offerId, name, baseGameName, typeGoodId,
-                   platformId, editionId, publisherId, regionId, mediaTypeId, restore
-            FROM products
-            ORDER BY RANDOM()
-            LIMIT 10
-        """).fetchall()
-        for s in samples:
-            print(f"  productId: {s['productId']}, offerId: {s['offerId']}")
-            print(f"    name: {s['name']}")
-            print(f"    baseGameName: {s['baseGameName']}")
-            print(f"    typeGoodId: {s['typeGoodId']}, platformId: {s['platformId']}, editionId: {s['editionId']}")
-            print(f"    publisherId: {s['publisherId']}, regionId: {s['regionId']}, mediaTypeId: {s['mediaTypeId']}")
-            print(f"    restore: {s['restore']}")
-            print()
+    print(f"Обработано товаров: {total}")
+    print(f"needs_review: {needs_review}")
+    print(f"ok: {total - needs_review}")
 
 
 if __name__ == "__main__":

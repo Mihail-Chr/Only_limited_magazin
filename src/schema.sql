@@ -83,6 +83,8 @@ CREATE TABLE IF NOT EXISTS typeGoods (
 CREATE TABLE IF NOT EXISTS editionTypes (
     editionId       INTEGER PRIMARY KEY AUTOINCREMENT,
     editionName     TEXT NOT NULL UNIQUE,       -- 'Standard', 'Deluxe', "Collector's", ...
+    createdBy       TEXT NOT NULL DEFAULT 'seed',  -- 'seed' | 'parser' | 'manual'
+    needsReview     INTEGER NOT NULL DEFAULT 0,    -- 1 — создано парсером, требует просмотра
     sortOrder       INTEGER DEFAULT 100,
     isActive        INTEGER NOT NULL DEFAULT 1
 );
@@ -147,7 +149,7 @@ CREATE TABLE IF NOT EXISTS exchangeRates (
     exchangeRateId  INTEGER PRIMARY KEY AUTOINCREMENT,
     rateDate        TEXT NOT NULL,              -- '2026-11-05'
     currencyId      INTEGER NOT NULL REFERENCES currencies(currencyId),
-    rateToRub       REAL NOT NULL,              -- 1 USD = 90.50 RUB
+    rateToRub       REAL CHECK ( rateToRub IS NULL OR rateToRub >= 0),          -- 1 USD = 90.50 RUB
     source          TEXT DEFAULT 'CBR',         -- 'CBR', 'manual'
     createdAt       TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (rateDate, currencyId)
@@ -234,18 +236,20 @@ CREATE TABLE IF NOT EXISTS products (
     publisherId             INTEGER REFERENCES publishers(publisherId),
     mediaTypeId             INTEGER REFERENCES mediaTypes(mediaTypeId),
     regionId                INTEGER REFERENCES regions(regionId),
-    releaseYear             INTEGER,
-    restore                 INTEGER NOT NULL DEFAULT 0,     -- лицензия (0/1)
-    weightG                 INTEGER,                        -- вес (г)
-    widthMm                 INTEGER,                        -- ширина (мм)
-    heightMm                INTEGER,                        -- высота (мм)
-    lengthMm                INTEGER,                        -- длина (мм)
+    releaseYear             INTEGER CHECK (releaseYear >= 1900 AND releaseYear <= 2100),
+    restore                 INTEGER NOT NULL DEFAULT 0,
+    parseStatus             TEXT NOT NULL DEFAULT 'ok',     -- 'ok' | 'needs_review'
+    parseNote               TEXT,                           -- unknown_bracket: ..., region_guess: ..., edition_created: ...
+    weightG                 INTEGER CHECK (weightG IS NULL OR weightG >= 0),   -- вес (г)
+    widthMm                 INTEGER CHECK (widthMm IS NULL OR widthMm >= 0),   -- ширина (мм)
+    heightMm                INTEGER CHECK (heightMm IS NULL OR heightMm >= 0),  -- высота (мм)
+    lengthMm                INTEGER CHECK (lengthMm IS NULL OR lengthMm >= 0),  -- длина (мм)
     photoFilename           TEXT,                           -- JSON-массив имён файлов
-    cost                    REAL,                           -- себестоимость за 1 шт (в валюте закупки)
+    cost                    REAL CHECK (cost IS NULL OR cost >= 0),-- себестоимость за 1 шт (в валюте закупки)
     costCurrencyId          INTEGER REFERENCES currencies(currencyId),
-    avgSellCost             REAL,                           -- средняя рыночная цена (RUB)
+    avgSellCost             REAL CHECK (avgSellCost IS NULL OR avgSellCost >= 0),  -- средняя рыночная цена (RUB)
     avgSellCostUpdatedAt    TEXT,                           -- когда обновлено
-    avgSellCostSamples      INTEGER,                        -- сколько образцов
+    avgSellCostSamples      INTEGER CHECK (avgSellCostSamples IS NULL OR avgSellCostSamples >= 0),                        -- сколько образцов
     avgSellCostBreakdown    TEXT,                           -- JSON (mock, для «конструктора»)
     isActive                INTEGER NOT NULL DEFAULT 1,
     createdAt               TEXT NOT NULL DEFAULT (datetime('now')),
@@ -257,6 +261,7 @@ CREATE INDEX IF NOT EXISTS idx_products_baseGameName ON products(baseGameName);
 CREATE INDEX IF NOT EXISTS idx_products_platformId ON products(platformId);
 CREATE INDEX IF NOT EXISTS idx_products_typeGoodId ON products(typeGoodId);
 CREATE INDEX IF NOT EXISTS idx_products_isActive ON products(isActive);
+CREATE INDEX IF NOT EXISTS idx_products_parseStatus ON products(parseStatus);
 
 -- ---------------------------------------------------------------------
 -- listings — Листинги (привязка товара к магазину)
@@ -267,12 +272,12 @@ CREATE TABLE IF NOT EXISTS listings (
     productId       INTEGER NOT NULL REFERENCES products(productId) ON DELETE CASCADE,
     sku             TEXT,                           -- SKU на площадке
     brand           TEXT,                           -- бренд (из API)
-    price           REAL,                           -- цена
-    priceAPI        REAL,                           -- старая цена из API (old_price)
+    price           REAL CHECK (price IS NULL OR price >= 0),    -- цена не может быть отрицательной
+    priceAPI        REAL CHECK (priceAPI IS NULL OR priceAPI >= 0),
     status          TEXT DEFAULT 'draft',           -- 'draft', 'active', 'archived'
     errorText       TEXT,                           -- ошибка (из API)
     defectsText     TEXT,                           -- дефекты (из API)
-    commissionRate  REAL,                           -- комиссия
+    commissionRate  REAL CHECK (commissionRate IS NULL OR commissionRate >= 0),-- комиссия
     payoutAmount    REAL,                           -- сумма выплаты (из API)
     UNIQUE (storeId, productId)
 );
@@ -323,8 +328,8 @@ CREATE TABLE IF NOT EXISTS stocks (
     stockId         INTEGER PRIMARY KEY AUTOINCREMENT,
     warehouseId     INTEGER NOT NULL REFERENCES warehouses(warehouseId),
     productId       INTEGER NOT NULL REFERENCES products(productId),
-    quantity        INTEGER NOT NULL DEFAULT 0,     -- физическое количество
-    countOfRepair   INTEGER NOT NULL DEFAULT 0,     -- в предпродажной подготовке
+    quantity        INTEGER NOT NULL CHECK (quantity >= 0) DEFAULT 0,   -- физическое количество
+    countOfRepair   INTEGER NOT NULL CHECK (countOfRepair >= 0) DEFAULT 0,     -- в предпродажной подготовке
     createdAt       TEXT NOT NULL DEFAULT (datetime('now')),
     updatedAt       TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (warehouseId, productId)
@@ -526,7 +531,8 @@ CREATE TABLE IF NOT EXISTS syncLog (
     dateFrom        TEXT,
     dateTo          TEXT,
     recordsCount    INTEGER DEFAULT 0,
-    syncedAt        TEXT NOT NULL DEFAULT (datetime('now'))
+    syncedAt        TEXT NOT NULL DEFAULT (datetime('now')),
+    notes           TEXT                            -- <--- ДОБАВИТЬ ВОТ ЭТО
 );
 
 -- =====================================================================

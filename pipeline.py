@@ -23,7 +23,7 @@ from pathlib import Path
 # Корень проекта
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
-
+import subprocess
 from src.db import get_conn, init_db
 
 
@@ -33,6 +33,26 @@ CONFIG_PATH = PROJECT_ROOT / "pipeline_config.json"
 # =====================================================================
 # ШАГИ
 # =====================================================================
+def step_tests() -> bool:
+    """Шаг 0: прогон тестов. Если упали — stop."""
+    print("[0/6] Тесты...")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "tests/", "-q"],
+            cwd=str(PROJECT_ROOT),
+            capture_output=True, text=True, timeout=300,
+        )
+        if result.returncode != 0:
+            print(f"  ❌ Тесты упали (код {result.returncode})")
+            print(result.stdout[-2000:])
+            print(result.stderr[-2000:])
+            return False
+        print(f"  ✅ Тесты прошли")
+        return True
+    except Exception as e:
+        print(f"  ❌ Ошибка запуска тестов: {e}")
+        return False
+
 
 def step_init_db() -> bool:
     """Шаг 1: создать БД из schema.sql."""
@@ -136,7 +156,7 @@ def step_fetch_postings(stores: list[dict]) -> bool:
         try:
             result = fetch_postings(platform, store_code, date_from, date_to)
             if result["ok"]:
-                print(f"    ✅ Создано: {result['inserted']}, ошибок: {len(result['errors'])}")
+                print(f"    ✅ Создано: {result['created']}, предупреждений: {len(result['warnings'])}")
                 success += 1
             else:
                 print(f"    ⚠️  Ошибка: {result['error']}")
@@ -176,9 +196,7 @@ def step_parse_names() -> bool:
         print(f"  ❌ Ошибка: {e}")
         return False
 
-
 def step_check() -> None:
-    """Шаг 6: проверка (counts + 10 примеров)."""
     print("[6/6] Проверка...")
     with get_conn() as conn:
         print(f"  products: {conn.execute('SELECT COUNT(*) FROM products').fetchone()[0]}")
@@ -187,13 +205,52 @@ def step_check() -> None:
         print(f"  salesOrderItems: {conn.execute('SELECT COUNT(*) FROM salesOrderItems').fetchone()[0]}")
         print(f"  salesOrderStatusHistory: {conn.execute('SELECT COUNT(*) FROM salesOrderStatusHistory').fetchone()[0]}")
         print(f"  statuses: {conn.execute('SELECT COUNT(*) FROM statuses').fetchone()[0]}")
+        # parseStatus: ok / needs_review
+        print(f"\n  parseStatus:")
+        for row in conn.execute(
+            "SELECT parseStatus, COUNT(*) AS cnt FROM products GROUP BY parseStatus"
+        ):
+            print(f"    {row['parseStatus'] or '—'}: {row['cnt']}")
+
+        # parseNote: разбивка по типам заметок
+        print(f"\n  parseNote (по типам):")
+        note_counts = {}
+        for row in conn.execute(
+            "SELECT parseNote FROM products WHERE parseNote IS NOT NULL AND parseNote != ''"
+        ):
+            try:
+                notes = json.loads(row["parseNote"])
+            except (json.JSONDecodeError, TypeError):
+                notes = [row["parseNote"]]
+            if isinstance(notes, str):
+                notes = [notes]
+            for note in notes:
+                key = note.split(":")[0].strip() if ":" in note else note
+                note_counts[key] = note_counts.get(key, 0) + 1
+        if note_counts:
+            for key, cnt in sorted(note_counts.items(), key=lambda x: -x[1]):
+                print(f"    {key}: {cnt}")
+        else:
+            print(f"    (нет)")
+
+        # editionTypes: createdBy
+        print(f"\n  editionTypes (createdBy):")
+        for row in conn.execute(
+            "SELECT createdBy, COUNT(*) AS cnt FROM editionTypes GROUP BY createdBy"
+        ):
+            print(f"    {row['createdBy'] or '—'}: {row['cnt']}")
+        print(f"  editionTypes (needsReview=1): "
+              f"{conn.execute('SELECT COUNT(*) FROM editionTypes WHERE needsReview = 1').fetchone()[0]}")
 
         print("\n  Случайные 10 товаров:")
         samples = conn.execute("""
-            SELECT productId, offerId, name, baseGameName,
-                   platformId, editionId, publisherId, typeGoodId,
-                   mediaTypeId, regionId, restore
-            FROM products
+            SELECT p.productId, p.offerId, p.name, p.baseGameName, 
+                   (SELECT typeGoodName FROM typeGoods WHERE typeGoodId = p.typeGoodId) AS type_name,
+                   (SELECT platformName || ' ' || platformVersion FROM platforms WHERE platformId = p.platformId) AS platform_name,
+                   (SELECT editionName FROM editionTypes WHERE editionId = p.editionId) AS edition_name,
+                   (SELECT publisherName FROM publishers WHERE publisherId = p.publisherId) AS publisher_name
+            FROM products p
+            WHERE p.baseGameName NOT LIKE 'Товар %'
             ORDER BY RANDOM()
             LIMIT 10
         """).fetchall()
@@ -202,8 +259,10 @@ def step_check() -> None:
             print(f"    productId: {s['productId']}, offerId: {s['offerId']}")
             print(f"      name: {s['name']}")
             print(f"      baseGameName: {s['baseGameName']}")
-            print(f"      platformId: {s['platformId']}, editionId: {s['editionId']}, publisherId: {s['publisherId']}")
-            print(f"      typeGoodId: {s['typeGoodId']}, mediaTypeId: {s['mediaTypeId']}, regionId: {s['regionId']}, restore: {s['restore']}")
+            print(f"      type: {s['type_name'] or '—'}")
+            print(f"      platform: {s['platform_name'] or '—'}")
+            print(f"      edition: {s['edition_name'] or '—'}")
+            print(f"      publisher: {s['publisher_name'] or '—'}")
             print()
 
 def step_clean_stubs() -> bool:
@@ -248,6 +307,12 @@ def main():
     for s in stores:
         print(f"  - {s['platform']}/{s['store_code']} ({s.get('date_from')}—{s.get('date_to')})")
     print()
+  
+    # 0. Тесты (опционально: --skip-tests)
+    if "--skip-tests" not in sys.argv:
+        if not step_tests():
+            print("\n❌ Pipeline остановлен (тесты)")
+            sys.exit(1)
 
     # 1. init_db (критично)
     if not step_init_db():

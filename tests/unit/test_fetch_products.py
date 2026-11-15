@@ -110,7 +110,8 @@ def test_fetch_products_updates_names(monkeypatch, tmp_path):
     result = fetch_products("ozon", "limited_games", client=client)
 
     assert result["ok"] is True
-    assert result["updated"] == 1
+    assert result["inserted"] == 1
+    assert result["updated"] == 0  # мы не обновляем старые, мы создаем новые
 
     conn = get_test_conn()
     row = conn.execute("SELECT name FROM products WHERE offerId = 'TEST-001'").fetchone()
@@ -168,7 +169,7 @@ def test_fetch_products_returns_counts(monkeypatch, tmp_path):
 
     assert result["ok"] is True
     assert result["inserted"] == 2
-    assert result["updated"] == 2
+    assert result["updated"] == 0
     assert result["listings"] == 2
 
 
@@ -350,3 +351,39 @@ def test_fetch_products_handles_hasapi_zero_but_env_present(monkeypatch):
 
     assert result["ok"] is True
     assert any("hasApi" in e for e in result["errors"])
+
+def test_fetch_products_does_not_overwrite_existing_name(monkeypatch, tmp_path):
+    """Если товар уже есть, name не меняется, обновляется только цена."""
+    from src.scripts.fetch_products import fetch_products
+    from src.db import get_conn
+    import src.scripts.fetch_products as fp
+
+    monkeypatch.setenv("TEST_DB_PATH", TEST_DB_PATH)
+    monkeypatch.setenv("OZON_LIMITED_GAMES_CLIENT_ID", "test_id")
+    monkeypatch.setenv("OZON_LIMITED_GAMES_API_KEY", "test_key")
+    fp.DATA_API_RAW = tmp_path / "api_raw"
+
+    # 1. Сначала создаем товар в БД вручную
+    with get_conn() as conn:
+        conn.execute("INSERT INTO products (productId, offerId, name) VALUES (999, 'TEST-OLD', 'Мое ручное имя')")
+        conn.execute("INSERT INTO listings (storeId, productId, price) VALUES (1, 999, 100.0)")
+
+    # 2. Мок OZON возвращает этот же товар, но с другим именем и ценой
+    products = [{"offer_id": "TEST-OLD", "product_id": 123, "sku": 456, "price": 500}]
+    info = [{"offer_id": "TEST-OLD", "name": "Из OZON"}]
+    client = make_mock_client(products=products, info=info)
+
+    result = fetch_products("ozon", "limited_games", client=client)
+
+    # 3. Проверяем
+    assert result["inserted"] == 0
+    assert result["updated"] == 1
+
+    with get_conn() as conn:
+        prod = conn.execute("SELECT name FROM products WHERE offerId = 'TEST-OLD'").fetchone()
+        # Имя НЕ должно измениться на "Из OZON"
+        assert prod["name"] == "Мое ручное имя"
+        
+        lst = conn.execute("SELECT price FROM listings WHERE productId = 999").fetchone()
+        # А цена должна обновиться
+        assert lst["price"] == 500
